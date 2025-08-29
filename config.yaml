@@ -7,11 +7,11 @@ spike:
     - SOL_USDT
     - BTC_USDT
   interval: "Min1"             # סוג הנר לבדיקה (1 דקה)
-  cooldown_seconds: 20         # המתנה מינימלית בין עסקאות על אותו מטבע
+  cooldown_seconds: 500         # המתנה מינימלית בין עסקאות על אותו מטבע
 
   # סף פערי מחיר מותאם לכל מטבע
   thresholds:
-    BTC_USDT: 200      # BTC → Spike אם ההפרש >= 300$
+    BTC_USDT: 30      # BTC → Spike אם ההפרש >= 300$
     SOL_USDT: 0.1      # SOL → Spike אם ההפרש >= 0.8$
 
 telegram:
@@ -30,12 +30,12 @@ mexc_trades:
     symbol: "SOL_USDT"
     openType: 2
     type: "5"
-    leverage: 20
+    leverage: 40
     priceProtect: "0"
 
   BTC_USDT:
     symbol: "BTC_USDT"
     openType: 2
     type: "5"
-    leverage: 20
+    leverage: 40
     priceProtect: "0"

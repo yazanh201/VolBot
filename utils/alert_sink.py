@@ -23,3 +23,35 @@ class AlertSink:
                             logging.warning("Telegram send failed for %s: %s", chat_id, await resp.text())
                 except Exception as e:
                     logging.warning("Telegram exception for %s: %s", chat_id, e)
+
+
+
+    # === Helpers for trade messages ===
+def fmt_open_msg(symbol: str, side: str, qty, lev, entry=None, tp_pct=None, tp_price=None):
+    lines = [
+        "✅ OPEN TRADE",
+        f"• Symbol: {symbol}",
+        f"• Side: {side}",
+        f"• Qty: {qty}",
+        f"• Leverage: x{lev}",
+    ]
+    if entry is not None:
+        lines.append(f"• Entry: {entry}")
+    if tp_pct is not None:
+        lines.append(f"• TP%: {tp_pct}")
+    if tp_price is not None:
+        lines.append(f"• TP Price: {tp_price}")
+    return "\n".join(lines)
+
+
+def fmt_close_msg(symbol: str, side: str, qty, pnl=None):
+    lines = [
+        "✅ CLOSE TRADE",
+        f"• Symbol: {symbol}",
+        f"• Side: {side}",
+        f"• Qty: {qty}",
+    ]
+    if pnl is not None:
+        lines.append(f"• PnL: {pnl}%")
+    return "\n".join(lines)
+

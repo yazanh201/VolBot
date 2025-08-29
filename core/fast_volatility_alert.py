@@ -2,6 +2,7 @@ import asyncio, yaml, logging, os, json
 from dotenv import load_dotenv
 
 from utils.alert_sink import AlertSink
+from utils.alert_sink import fmt_open_msg, fmt_close_msg
 from core.SpikeEngine import SpikeEngine
 from services.mexc_api import MexcAPI        # בדיקת פוזיציות / PnL
 from services.mexc_order import place_order  # שליחת הזמנות (פתיחה/סגירה) בפועל
@@ -17,7 +18,7 @@ ws_client = None   # לקוח WS גלובלי לשליפת מחירים בזמן
 # מונה עסקאות לפי סימבול
 trade_counters = defaultdict(list)
 
-def can_open_new_trade(symbol: str, max_trades_per_hour: int = 2) -> bool:
+def can_open_new_trade(symbol: str, max_trades_per_hour: int = 1) -> bool:
     """
     מחזיר True אם מותר לפתוח עסקה חדשה עבור symbol, אחרת False.
     שומר עד מקסימום X עסקאות בשעה.
@@ -63,14 +64,25 @@ def _calc_tp_price(entry: float, leverage: float, tp_pct: float, side_open: int)
 # ---------- ENV & Logging ----------
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
+# logging.basicConfig(
+#     level=logging.DEBUG,
+#     format="%(asctime)s | %(levelname)s | %(message)s",
+#     handlers=[
+#         logging.StreamHandler(),
+#         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
+#     ],
+# )
+
+
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.WARNING,   # כאן לשנות מ-DEBUG ל-WARNING
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
     ],
 )
+
 
 # ---------- API keys for read-only MexcAPI ----------
 mexc_api_key = os.environ.get("MEXC_API_KEY_WEB2", "").strip()
@@ -93,7 +105,8 @@ async def open_mexc_order(
     last_price: float,
     first_price: float,
     trade_cfg: dict,
-    risk_cfg: dict
+    risk_cfg: dict,
+    alert_sink=None   # ✅ נוסיף פרמטר כדי שנוכל לשלוח טלגרם
 ):
     """
     פותח עסקה על בסיס Spike:
@@ -212,6 +225,24 @@ async def open_mexc_order(
             open_trades[norm_symbol] = obj_to_store  # ✅ עדכון מלא במקום pending
             logging.info("🗂️ open_trades עודכן (אחרי פתיחה):\n%s",
                          _pp_open_trades(open_trades))
+
+            # 📣 טלגרם: הודעת OPEN רק אחרי פתיחה מוצלחת
+            if alert_sink:
+                try:
+                    side_txt = "LONG" if side == 1 else "SHORT"
+                    msg = fmt_open_msg(
+                        symbol=norm_symbol,
+                        side=side_txt,
+                        qty=obj_to_store.get("vol"),
+                        lev=obj_to_store.get("lev"),
+                        entry=obj_to_store.get("entry"),
+                        tp_pct=obj_to_store.get("tp_pct"),
+                        tp_price=obj_to_store.get("tp_price"),
+                    )
+                    await alert_sink.notify(msg)
+                except Exception as e:
+                    logging.warning("⚠️ Telegram OPEN notify failed for %s: %s", norm_symbol, e)
+
         except Exception as e:
             open_trades[norm_symbol] = obj
             logging.warning("⚠️ לא הצלחתי להביא entry/lev/TP עבור %s: %s", norm_symbol, e)
@@ -225,7 +256,7 @@ async def open_mexc_order(
 
 # ---------- TP/SL close ----------
 
-async def check_and_close_if_needed(trade_obj: dict, pnl: float, risk_cfg: dict):
+async def check_and_close_if_needed(trade_obj: dict, pnl: float, risk_cfg: dict, alert_sink=None):
     """
     בודקת TP קבוע מתוך config ו-SL דינמי לפי מחיר הסגירה של הנר האחרון עם tolerance.
     """
@@ -298,6 +329,20 @@ async def check_and_close_if_needed(trade_obj: dict, pnl: float, risk_cfg: dict)
         open_trades.pop(symbol, None)
         logging.info("🗂️ open_trades אחרי סגירה:\n%s", json.dumps(open_trades, ensure_ascii=False, indent=2))
 
+        # 📣 טלגרם: הודעת CLOSE רק אחרי סגירה מוצלחת
+        if alert_sink:
+            try:
+                side_txt = "CLOSE-LONG" if close_side == 4 else "CLOSE-SHORT"
+                msg = fmt_close_msg(
+                    symbol=symbol,
+                    side=side_txt,
+                    qty=close_obj.get("vol"),
+                    pnl=pnl if isinstance(pnl, (int, float)) else None
+                )
+                await alert_sink.notify(msg)
+            except Exception as e:
+                logging.warning("⚠️ Telegram CLOSE notify failed for %s: %s", symbol, e)
+
     return resp
 
 
@@ -352,7 +397,7 @@ async def run(config_path: str = "config.yaml"):
             logging.warning("⚠️ אין הגדרות מסחר עבור %s", norm_symbol)
             return
 
-        await open_mexc_order(norm_symbol, price_range, last_price, first_price, trade_cfg, risk_cfg)
+        await open_mexc_order(norm_symbol, price_range, last_price, first_price, trade_cfg, risk_cfg, alert_sink=alert_sink)
 
     # --- Spike Engine (תמיכה ב-threshold אישי לכל סימבול) ---
     spike_cfg      = cfg.get("spike", {})
@@ -435,7 +480,7 @@ async def run(config_path: str = "config.yaml"):
                             )
                             try:
                                 # שימוש בפונקציה הקיימת לסגירה
-                                await check_and_close_if_needed(trade_obj, pnl=float(tp_pct), risk_cfg=risk_cfg)
+                                await check_and_close_if_needed(trade_obj, pnl=float(tp_pct), risk_cfg=risk_cfg, alert_sink=alert_sink)
                                 open_trades.pop(sym_key, None)
                             except Exception as e:
                                 logging.error("❌ שגיאה בסגירת TP מהירה עבור %s: %s", sym_key, e, exc_info=True)
@@ -445,7 +490,7 @@ async def run(config_path: str = "config.yaml"):
                     pnl = await mexc_api.get_unrealized_pnl(sym_key)
                     if pnl is not None:
                         try:
-                            await check_and_close_if_needed(trade_obj, pnl, risk_cfg)
+                            await check_and_close_if_needed(trade_obj, pnl, risk_cfg, alert_sink=alert_sink)
                         except Exception as e:
                             logging.error("❌ שגיאה בסגירה לפי TP/SL עבור %s: %s", sym_key, e, exc_info=True)
                     else:

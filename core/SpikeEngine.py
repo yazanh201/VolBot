@@ -42,15 +42,15 @@ class SpikeEngine:
                 if diff >= self.threshold and time.time() >= self._next_allowed_ts:
                     self._next_allowed_ts = time.time() + self.cooldown_seconds
 
-                    msg = (
-                        f"⚡ Spike Detected\n"
-                        f"Symbol: {self.symbol}\n"
-                        f"Close price: {close_price:.2f}\n"
-                        f"Current price: {last_price:.2f}\n"
-                        f"Diff: {diff:.2f} (Threshold: {self.threshold:.2f})"
-                    )
-                    await self.alert_sink.notify(msg)
-                    logging.info(msg)
+                    # msg = (
+                    #     f"⚡ Spike Detected\n"
+                    #     f"Symbol: {self.symbol}\n"
+                    #     f"Close price: {close_price:.2f}\n"
+                    #     f"Current price: {last_price:.2f}\n"
+                    #     f"Diff: {diff:.2f} (Threshold: {self.threshold:.2f})"
+                    # )
+                    # await self.alert_sink.notify(msg)
+                    # logging.info(msg)
 
                     if self.trade_cb:
                         try:

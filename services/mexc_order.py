@@ -32,17 +32,17 @@ def _sign(key: str, obj: dict) -> dict:
     g = _md5(key + date_now)[7:]
     s = json.dumps(obj, separators=(',', ':'))
     sign = _md5(date_now + s + g)
-    print("📝 Signature Debug:")
-    print("   ⏱ time =", date_now)
-    print("   🔑 g =", g)
-    print("   📦 obj (for sign) =", s)
-    print("   ✍ sign =", sign)
+    # print("📝 Signature Debug:")
+    # print("   ⏱ time =", date_now)
+    # print("   🔑 g =", g)
+    # print("   📦 obj (for sign) =", s)
+    # print("   ✍ sign =", sign)
     return {"time": date_now, "sign": sign}
 
 def place_order(obj: dict) -> dict:
     """שליחת הזמנה ל-MEXC (פתיחה או סגירה)"""
     if not MEXC_API_KEY_WEB:
-        print("❌ Missing MEXC_API_KEY_WEB in .env (or empty)")
+        #print("❌ Missing MEXC_API_KEY_WEB in .env (or empty)")
         return {"error": "Missing MEXC_API_KEY_WEB in .env"}
 
     signature = _sign(MEXC_API_KEY_WEB, obj)
@@ -56,13 +56,13 @@ def place_order(obj: dict) -> dict:
 
     url = "https://futures.mexc.com/api/v1/private/order/create"
 
-    print("➡️ POST", url)
-    print("🧾 Headers:", {k: (v if k != "Authorization" else _mask(v)) for k,v in headers.items()})
-    print("📦 Payload (raw):", obj)
+    # print("➡️ POST", url)
+    # print("🧾 Headers:", {k: (v if k != "Authorization" else _mask(v)) for k,v in headers.items()})
+    # print("📦 Payload (raw):", obj)
 
     try:
         r = requests.post(url, headers=headers, json=obj, timeout=30)
-        print("📥 Raw response:", r.status_code, r.text)
+        # print("📥 Raw response:", r.status_code, r.text)
         try:
             return r.json()
         except Exception:
