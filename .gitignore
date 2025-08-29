@@ -1,0 +1,43 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# --- Environments & Secrets ---
+.env
+*.env
+*.secret*
+*.key
+.python-version
+
+# --- Logs ---
+*.log
+logs/
+*.out
+*.tmp
+*.pid
+
+# --- Virtualenv ---
+.venv/
+venv/
+ENV/
+env/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+
+# --- Build / Dist ---
+build/
+dist/
+*.egg-info/
+
+# --- Notebooks ---
+.ipynb_checkpoints/
+
+# --- Coverage / Testing ---
+.coverage
+htmlcov/
+.pytest_cache/

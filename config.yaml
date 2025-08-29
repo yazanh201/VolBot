@@ -1,0 +1,41 @@
+# =========================
+# תצורת מערכת SpikeEngine (נרות 1m, פתיחה לפי הפרשי מחירים)
+# =========================
+
+spike:
+  symbols:
+    - SOL_USDT
+    - BTC_USDT
+  interval: "Min1"             # סוג הנר לבדיקה (1 דקה)
+  cooldown_seconds: 20         # המתנה מינימלית בין עסקאות על אותו מטבע
+
+  # סף פערי מחיר מותאם לכל מטבע
+  thresholds:
+    BTC_USDT: 200      # BTC → Spike אם ההפרש >= 300$
+    SOL_USDT: 0.1      # SOL → Spike אם ההפרש >= 0.8$
+
+telegram:
+  enabled: true
+  bot_token: "8172167806:AAHGr1UgKw6VYzXiYFkt-RwabqjMbX8KrBk"
+  chat_id:
+    - "5817603930"
+
+risk:
+  takeProfitPct: 0.5        # רווח באחוזים (TP קבוע מתוך config)
+  percentPerTrade: 5      # אחוז מההון לפתיחת עסקה (לכל המטבעות)
+  slTolerancePct: 0.0015   # טולרנס ל־SL דינמי (0.1%)
+
+mexc_trades:
+  SOL_USDT:
+    symbol: "SOL_USDT"
+    openType: 2
+    type: "5"
+    leverage: 20
+    priceProtect: "0"
+
+  BTC_USDT:
+    symbol: "BTC_USDT"
+    openType: 2
+    type: "5"
+    leverage: 20
+    priceProtect: "0"

@@ -1,0 +1,7 @@
+services:
+  - type: worker
+    name: fast-volatility-bot
+    env: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python fast_volatility_alert.py"
+    plan: free
