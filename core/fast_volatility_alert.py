@@ -64,24 +64,24 @@ def _calc_tp_price(entry: float, leverage: float, tp_pct: float, side_open: int)
 # ---------- ENV & Logging ----------
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
-# logging.basicConfig(
-#     level=logging.DEBUG,
-#     format="%(asctime)s | %(levelname)s | %(message)s",
-#     handlers=[
-#         logging.StreamHandler(),
-#         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
-#     ],
-# )
-
-
 logging.basicConfig(
-    level=logging.WARNING,   # כאן לשנות מ-DEBUG ל-WARNING
+    level=logging.DEBUG,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
     ],
 )
+
+
+# logging.basicConfig(
+#     level=logging.WARNING,   # כאן לשנות מ-DEBUG ל-WARNING
+#     format="%(asctime)s | %(levelname)s | %(message)s",
+#     handlers=[
+#         logging.StreamHandler(),
+#         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
+#     ],
+# )
 
 
 # ---------- API keys for read-only MexcAPI ----------

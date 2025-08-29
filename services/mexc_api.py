@@ -16,9 +16,7 @@ class MexcAPI:
 
         # caches
         self._contracts_cache = {}
-        # {symbol: (price, ts)}
         self._prices_cache: Dict[str, Tuple[float, float]] = {}
-        # {(symbol, interval): (candle_dict, ts)}
         self._candle_cache: Dict[Tuple[str, str], Tuple[dict, float]] = {}
         self._balance_cache = 0.0
 
@@ -27,6 +25,29 @@ class MexcAPI:
         self._sem = asyncio.Semaphore(max_concurrency)
         self._ticker_ttl = float(ticker_ttl)
         self._candle_ttl = float(candle_ttl)
+
+    async def start_session(self):
+        """יוצר את ה-ClientSession בתוך event loop רץ"""
+        if not self.session:
+            timeout = aiohttp.ClientTimeout(total=10)
+            try:
+                connector = aiohttp.TCPConnector(
+                    force_close=True,
+                    http_versions=[aiohttp.HttpVersion11]  # יעבוד בגרסאות חדשות
+                )
+            except TypeError:
+                connector = aiohttp.TCPConnector(force_close=True)  # fallback לישן
+
+            self.session = aiohttp.ClientSession(
+                timeout=timeout,
+                connector=connector
+            )
+
+    async def close_session(self):
+        """סוגר את ה-ClientSession"""
+        if self.session:
+            await self.session.close()
+            self.session = None
 
     def attach_rate_limiter(self, limiter: RateLimiter, max_concurrency: int = 8):
         """מאפשר לחבר לימיטר מבחוץ, אם רוצים ליצור אותו לפי config."""
@@ -43,15 +64,6 @@ class MexcAPI:
             return 2
         return 1
 
-    async def start_session(self):
-        if not self.session:
-            timeout = aiohttp.ClientTimeout(total=10)
-            self.session = aiohttp.ClientSession(timeout=timeout)
-
-    async def close_session(self):
-        if self.session:
-            await self.session.close()
-            self.session = None
 
     async def _send_request(self, method: str, path: str, params: dict = None, signed: bool = True,
                             max_retries: int = 5, weight: Optional[int] = None) -> dict:
