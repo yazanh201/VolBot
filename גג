@@ -1,0 +1,31 @@
+        def _send_blocking():
+            r = curlreq.post(
+                url,
+                headers=headers,
+                json=obj,
+                timeout=30,
+                http_version="1.1",        # 👈 מכריח HTTP/1.1
+                impersonate="chrome110"    # 👈 מוסיף headers כמו דפדפן
+            )
+            try:
+                return r.json()
+            except Exception:
+                return {"status": r.status_code, "text": r.text}
+
+        retries, delay = 3, 0.7
+        last_exc = None
+        for i in range(retries):
+            try:
+                data = await asyncio.to_thread(_send_blocking)
+                if isinstance(data, dict) and data.get("status") not in (None, 200):
+                    logging.warning("MEXC HTTP (curl) %s: %s", data.get("status"), data)
+                return data
+            except Exception as e:
+                last_exc = e
+                logging.warning(
+                    "MEXC post error (curl, try %s/%s): %s. Retrying in %.1fs...",
+                    i + 1, retries, e, delay
+                )
+                await asyncio.sleep(delay)
+                delay *= 1.7
+        raise last_exc or RuntimeError("MEXC request failed")

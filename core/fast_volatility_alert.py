@@ -167,10 +167,10 @@ async def open_mexc_order(
         "symbol": norm_symbol,
         "side": side,
         "openType": trade_cfg.get("openType", 1),
-        "type": trade_cfg.get("type", "5"),   # Market
+        "type": trade_cfg.get("type", 5),   # Market
         "vol": vol,
         "leverage": leverage,
-        "priceProtect": trade_cfg.get("priceProtect", "0"),
+        "priceProtect": trade_cfg.get("priceProtect", 0),
     }
 
     logging.info("📤 שולח עסקה על %s (side=%s, vol=%s)", norm_symbol, side, vol)

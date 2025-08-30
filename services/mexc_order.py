@@ -4,6 +4,8 @@ import time
 from curl_cffi import requests
 import os
 from dotenv import load_dotenv
+from curl_cffi.const import CurlHttpVersion
+
 
 # ===== עזר: הדפסת מפתח מוחשך =====
 def _mask(s: str, show=4) -> str:
@@ -61,7 +63,7 @@ def place_order(obj: dict) -> dict:
     # print("📦 Payload (raw):", obj)
 
     try:
-        r = requests.post(url, headers=headers, json=obj, timeout=30)
+        r = requests.post(url, headers=headers, json=obj, timeout=30,http_version=CurlHttpVersion.V1_1)
         # print("📥 Raw response:", r.status_code, r.text)
         try:
             return r.json()
@@ -71,17 +73,17 @@ def place_order(obj: dict) -> dict:
         print("❌ Request failed:", e)
         return {"error": str(e)}
 
-if __name__ == "__main__":
-    # דוגמה לבדיקה (לא פותח עסקה אמיתית אלא רק בודק מבנה):
-    test_payload = {
-        "symbol": "BTC_USDT",
-        "side": 1,
-        "openType": 1,
-        "type": "5",
-        "vol": 1,
-        "leverage": 20,
-        "priceProtect": "0"
-    }
-    print("=== בדיקת place_order עם payload לדוגמה ===")
-    resp = place_order(test_payload)
-    print("📊 Final parsed response:", resp)
+# if __name__ == "__main__":
+#     # דוגמה לבדיקה (לא פותח עסקה אמיתית אלא רק בודק מבנה):
+#     test_payload = {
+#         "symbol": "BTC_USDT",
+#         "side": 1,
+#         "openType": 1,
+#         "type": 5,
+#         "vol": 1,
+#         "leverage": 20,
+#         "priceProtect": 0
+#     }
+#     print("=== בדיקת place_order עם payload לדוגמה ===")
+#     resp = place_order(test_payload)
+#     print("📊 Final parsed response:", resp)

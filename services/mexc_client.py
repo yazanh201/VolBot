@@ -1,6 +1,7 @@
 import aiohttp, asyncio, json, time, hashlib, logging
 from typing import Optional
 from curl_cffi import requests as curlreq
+from curl_cffi.const import CurlHttpVersion
 
 class MexcClient:
     def __init__(self, api_key: str, base_url: str = "https://futures.mexc.com"):
@@ -50,7 +51,7 @@ class MexcClient:
         }
 
         def _send_blocking():
-            r = curlreq.post(url, headers=headers, json=obj, timeout=30)
+            r = curlreq.post(url, headers=headers, json=obj, timeout=30,http_version=CurlHttpVersion.V1_1)
             try:
                 return r.json()
             except Exception:
@@ -85,10 +86,10 @@ class MexcClient:
             "symbol": trade_cfg["symbol"],          # למשל "SOL_USDT"
             "side": side,
             "openType": trade_cfg.get("openType", 1),
-            "type": trade_cfg.get("type", "5"),     # Market
+            "type": trade_cfg.get("type", 5),     # Market
             "vol": trade_cfg.get("vol", 1),
             "leverage": trade_cfg.get("leverage", 20),
-            "priceProtect": trade_cfg.get("priceProtect", "0"),
+            "priceProtect": trade_cfg.get("priceProtect", 0),
         }
         logging.info("📈 Directional order for %s → side=%s (last=%.4f vs first=%.4f)",
                      trade_cfg["symbol"], side, last_price, first_price)
@@ -110,10 +111,10 @@ class MexcClient:
             "symbol": trade_cfg["symbol"],                 # לדוגמה: "SOL_USDT"
             "side": side_close,                            # 2=סגור LONG, 4=סגור SHORT
             "openType": trade_cfg.get("openType", 1),
-            "type": trade_cfg.get("type", "5"),            # Market
+            "type": trade_cfg.get("type", 5),            # Market
             "vol": (vol if vol is not None else trade_cfg.get("vol", 1)),
             "leverage": trade_cfg.get("leverage", 20),     # לא נדרש לסגירה אבל לא מזיק
-            "priceProtect": trade_cfg.get("priceProtect", "0"),
+            "priceProtect": trade_cfg.get("priceProtect", 0),
         }
         logging.info("🔻 Close order for %s → side=%s (last=%.4f vs first=%.4f)",
                     trade_cfg["symbol"], side_close, last_price, first_price)

@@ -11,8 +11,8 @@ spike:
 
   # סף פערי מחיר מותאם לכל מטבע
   thresholds:
-    BTC_USDT: 30      # BTC → Spike אם ההפרש >= 300$
-    SOL_USDT: 0.1      # SOL → Spike אם ההפרש >= 0.8$
+    BTC_USDT: 300      # BTC → Spike אם ההפרש >= 300$
+    SOL_USDT: 0.05      # SOL → Spike אם ההפרש >= 0.8$
 
 telegram:
   enabled: true
@@ -29,13 +29,13 @@ mexc_trades:
   SOL_USDT:
     symbol: "SOL_USDT"
     openType: 2
-    type: "5"
+    type: 5
     leverage: 40
-    priceProtect: "0"
+    priceProtect: 0
 
   BTC_USDT:
     symbol: "BTC_USDT"
     openType: 2
-    type: "5"
+    type: 5
     leverage: 40
-    priceProtect: "0"
+    priceProtect: 0
