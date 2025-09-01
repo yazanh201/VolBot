@@ -23,19 +23,19 @@ telegram:
 risk:
   takeProfitPct: 200        # רווח באחוזים (TP קבוע מתוך config)
   percentPerTrade: 5      # אחוז מההון לפתיחת עסקה (לכל המטבעות)
-  slTolerancePct: 0.001   # טולרנס ל־SL דינמי (0.1%)
+  slTolerancePct: 0.0025   # טולרנס ל־SL דינמי (0.1%)
 
 mexc_trades:
   SOL_USDT:
     symbol: "SOL_USDT"
     openType: 2
     type: 5
-    leverage: 200
+    leverage: 300
     priceProtect: 0
 
   BTC_USDT:
     symbol: "BTC_USDT"
     openType: 2
     type: 5
-    leverage: 300
+    leverage: 400
     priceProtect: 0

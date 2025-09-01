@@ -10,6 +10,7 @@ from services.rate_limiter import RateLimiter  # לעתיד (כרגע לא בש�
 from services.mexc_ws import MexcWebSocket   # WebSocket לשליפת מחיר נוכחי
 import time
 from collections import defaultdict
+from services.Tp_Sl_Change import MexcTPClient  # לקוח TP/SL
 
 ws_client = None   # לקוח WS גלובלי לשליפת מחירים בזמן אמת
 
@@ -60,9 +61,22 @@ def _calc_tp_price(entry: float, leverage: float, tp_pct: float, side_open: int)
     else:
         raise ValueError(f"unknown side_open={side_open}")
 
+def _calc_sl_price(entry: float, sl_tolerance: float, side_open: int) -> float:
+    """
+    מחשב מחיר Stop Loss לפי כניסה + טולרנס.
+    side_open: 1=Open Long, 3=Open Short
+    sl_tolerance: אחוז טולרנס, למשל 0.001 (0.1%)
+    """
+    if side_open == 1:   # Long
+        return entry * (1.0 - sl_tolerance)
+    elif side_open == 3: # Short
+        return entry * (1.0 + sl_tolerance)
+    else:
+        raise ValueError(f"unknown side_open={side_open}")
 
-# ---------- ENV & Logging ----------
-load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
+
+# # ---------- ENV & Logging ----------
+# load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 # logging.basicConfig(
 #     level=logging.DEBUG,
@@ -106,244 +120,124 @@ async def open_mexc_order(
     first_price: float,
     trade_cfg: dict,
     risk_cfg: dict,
-    alert_sink=None   # ✅ נוסיף פרמטר כדי שנוכל לשלוח טלגרם
+    alert_sink=None
 ):
-    """
-    פותח עסקה על בסיס Spike:
-    - מונע כפילות (dict)
-    - מחשב Vol לפי אחוז מהיתרה ולברג'
-    - חוסם שליחה אם vol==0
-    - מחשב ושומר tp_price (מחיר יעד ל-TP) לפי entry+leverage+TP%
-    - שומר את ה-payload שנשלח ב-open_trades רק לאחר הצלחה
-    - מגביל מקסימום עסקאות לשעה (ברירת מחדל 2 לסימבול)
-    """
     norm_symbol = mexc_api.normalize_symbol(symbol)
 
-    # 🟢 שלב 0: מגבלת עסקאות לשעה
+    # מגבלת עסקאות לשעה
     if not can_open_new_trade(norm_symbol, max_trades_per_hour=2):
         logging.info("⏳ דילוג → כבר נפתחו 2 עסקאות בשעה האחרונה עבור %s", norm_symbol)
         return {"skipped": "trade_limit_reached", "symbol": norm_symbol}
 
-    # 🟢 שלב 1: בדיקה מקומית (מניעת פתיחה כפולה)
+    # מניעת פתיחה כפולה
     if norm_symbol in open_trades:
         logging.info("⛔ דילוג (dict) → כבר קיימת עסקה על %s", norm_symbol)
         return {"skipped": "local_open_trade_exists", "symbol": norm_symbol}
 
-    # סימון "pending" כדי למנוע פתיחה כפולה בזמן אמת
     open_trades[norm_symbol] = {"pending": True}
 
-    # 🟢 שלב 2: קביעת כיוון העסקה
+    # כיוון העסקה
     if last_price == first_price:
-        logging.info("⏸️ דילוג → last_price == first_price (%s), לא פותח עסקה עבור %s",
-                     last_price, norm_symbol)
-        open_trades.pop(norm_symbol, None)  # ביטול pending
+        logging.info("⏸️ דילוג → last_price == first_price (%s)", last_price)
+        open_trades.pop(norm_symbol, None)
         return {"skipped": "neutral_direction", "symbol": norm_symbol}
 
     side = 1 if last_price > first_price else 3
-    logging.info("🧭 כיוון פתיחה עבור %s → side=%s (last=%.6f, close=%.6f)",
-                 norm_symbol, side, last_price, first_price)
 
-    # 🟢 שלב 3: חישוב Vol
+    # חישוב Vol
     percent = risk_cfg.get("percentPerTrade", trade_cfg.get("percentPerTrade", 5))
     leverage = trade_cfg.get("leverage", 20)
-    logging.info("📊 חישוב Vol → symbol=%s | percent=%s | leverage=%s", norm_symbol, percent, leverage)
-
     try:
         vol = await mexc_api.calc_order_volume(norm_symbol, percent=percent, leverage=leverage)
-        logging.info("📊 Vol שחושב עבור %s: %s חוזים", norm_symbol, vol)
-
         if vol <= 0:
-            logging.warning("⛔ Vol==0 עבור %s → לא שולח הזמנה", norm_symbol)
-            open_trades.pop(norm_symbol, None)  # ביטול pending
-            return {"skipped": "zero_volume", "symbol": norm_symbol,
-                    "percent": percent, "leverage": leverage}
+            open_trades.pop(norm_symbol, None)
+            return {"skipped": "zero_volume", "symbol": norm_symbol}
     except Exception as e:
-        logging.error("❌ שגיאה בחישוב vol עבור %s: %s", norm_symbol, e, exc_info=True)
-        open_trades.pop(norm_symbol, None)  # ביטול pending
+        open_trades.pop(norm_symbol, None)
         return {"error": "calc_volume_failed", "symbol": norm_symbol, "exception": str(e)}
 
-    # 🟢 שלב 4: בניית payload ושליחה
+    # Payload
     obj = {
         "symbol": norm_symbol,
         "side": side,
         "openType": trade_cfg.get("openType", 1),
-        "type": trade_cfg.get("type", 5),   # Market
+        "type": trade_cfg.get("type", 5),
         "vol": vol,
         "leverage": leverage,
         "priceProtect": trade_cfg.get("priceProtect", 0),
     }
 
-    logging.info("📤 שולח עסקה על %s (side=%s, vol=%s)", norm_symbol, side, vol)
-    logging.debug("Payload → %s", obj)
+    # TakeProfit
+    tp_pct = risk_cfg.get("takeProfitPct")
+    anchor_price = ws_client.get_price(norm_symbol) if ws_client else last_price
+    tp_price = None
+    if tp_pct is not None and anchor_price:
+        tp_price = _calc_tp_price(anchor_price, leverage, float(tp_pct), side)
+        obj["takeProfitPrice"] = round(float(tp_price), 3)
 
+    # StopLoss
+    sl_tol = float(risk_cfg.get("slTolerancePct", 0))
+    sl_price = None
+    if sl_tol > 0 and anchor_price:
+        sl_price = _calc_sl_price(anchor_price, sl_tol, side)
+        obj["stopLossPrice"] = round(float(sl_price), 3)
+
+    # שליחה
     try:
         resp = await asyncio.to_thread(place_order, obj)
     except Exception as e:
-        logging.error("❌ כשל בשליחת ההזמנה עבור %s: %s", norm_symbol, e, exc_info=True)
-        open_trades.pop(norm_symbol, None)  # ביטול pending
+        open_trades.pop(norm_symbol, None)
         return {"error": "place_order_exception", "symbol": norm_symbol, "exception": str(e)}
 
-    logging.info("📩 תגובת MEXC עבור %s: %s", norm_symbol, resp)
-
-    # 🟢 שלב 5: ולידציית הצלחה ושמירת מצב
+    # שמירת מצב
     success = bool(resp.get("success", False))
-    code = resp.get("code")
-
-    if success or code in (0, 200, "200"):
+    if success or resp.get("code") in (0, 200, "200"):
         try:
-            entry = None
-            lev = leverage
-
-            # ✅ במקביל: API + WS
+            entry, lev = None, leverage
             pos, ws_entry = await asyncio.gather(
                 mexc_api.get_open_positions(norm_symbol),
                 asyncio.to_thread(lambda: ws_client.get_price(norm_symbol) if ws_client else None)
             )
-
             if pos and pos.get("success") and pos.get("data"):
                 p = pos["data"][0]
-                entry_val = p.get("holdAvgPrice")
-                if entry_val is not None:
-                    entry = float(entry_val)
-                lev_val = p.get("leverage")
-                if lev_val is not None:
-                    lev = float(lev_val)
-
-            if entry is None:
+                entry = float(p.get("holdAvgPrice", ws_entry))
+                lev = float(p.get("leverage", leverage))
+            else:
                 entry = ws_entry
 
-            tp_pct = risk_cfg.get("takeProfitPct")
-            tp_price = None
-            if tp_pct is not None and entry is not None:
-                tp_price = _calc_tp_price(entry=entry,
-                                          leverage=lev if lev and lev > 0 else 1.0,
-                                          tp_pct=float(tp_pct),
-                                          side_open=side)
+                        # אחרי שקיבלת resp מ-place_order
+            stop_orders = await mexc_api.get_stop_orders(symbol=norm_symbol)
+            stop_plan_id = None
+            if stop_orders.get("success") and stop_orders.get("data"):
+                # ניקח את הראשון ברשימה (אפשר גם לסנן לפי side או tp/sl)
+                stop_plan_id = stop_orders["data"][0]["id"]
 
-            obj_to_store = {**obj, "entry": entry, "lev": lev,
-                            "tp_pct": tp_pct, "tp_price": tp_price}
-            open_trades[norm_symbol] = obj_to_store  # ✅ עדכון מלא במקום pending
-            logging.info("🗂️ open_trades עודכן (אחרי פתיחה):\n%s",
-                         _pp_open_trades(open_trades))
-
-            # 📣 טלגרם: הודעת OPEN רק אחרי פתיחה מוצלחת
-            if alert_sink:
-                try:
-                    side_txt = "LONG" if side == 1 else "SHORT"
-                    msg = fmt_open_msg(
-                        symbol=norm_symbol,
-                        side=side_txt,
-                        qty=obj_to_store.get("vol"),
-                        lev=obj_to_store.get("lev"),
-                        entry=obj_to_store.get("entry"),
-                        tp_pct=obj_to_store.get("tp_pct"),
-                        tp_price=obj_to_store.get("tp_price"),
-                    )
-                    await alert_sink.notify(msg)
-                except Exception as e:
-                    logging.warning("⚠️ Telegram OPEN notify failed for %s: %s", norm_symbol, e)
+            # שמירה מורחבת עם stopPlanOrderId
+            obj_to_store = {
+                **obj,
+                "orderId": resp.get("data", {}).get("orderId"),
+                "stopPlanOrderId": stop_plan_id,   # ✅ הוספנו את זה
+                "entry": entry,
+                "lev": lev,
+                "tp_pct": tp_pct,
+                "tp_price": obj.get("takeProfitPrice"),
+                "sl_tol": sl_tol,
+                "sl_price": obj.get("stopLossPrice"),
+                "original_tp_price": tp_price,
+                "original_sl_price": sl_price,
+                "updates_count": 0
+            }
+            open_trades[norm_symbol] = obj_to_store
 
         except Exception as e:
             open_trades[norm_symbol] = obj
-            logging.warning("⚠️ לא הצלחתי להביא entry/lev/TP עבור %s: %s", norm_symbol, e)
 
         return {"ok": True, "symbol": norm_symbol, "response": resp}
 
-    # כישלון → ביטול ה־pending
     open_trades.pop(norm_symbol, None)
-    logging.warning("⚠️ פתיחה נכשלה עבור %s: %s", norm_symbol, resp)
     return {"ok": False, "symbol": norm_symbol, "response": resp}
 
 # ---------- TP/SL close ----------
-
-async def check_and_close_if_needed(trade_obj: dict, pnl: float, risk_cfg: dict, alert_sink=None):
-    """
-    בודקת TP קבוע מתוך config ו-SL דינמי לפי מחיר הסגירה של הנר האחרון עם tolerance.
-    """
-    symbol = trade_obj["symbol"]
-    tp = risk_cfg.get("takeProfitPct")          # TP באחוזים
-    tol = risk_cfg.get("slTolerancePct", 0.0)   # טולרנס ל-SL דינמי (ברירת מחדל 0)
-
-    logging.info("📊 %s: PnL=%.2f%% | TP=%s | tol=%.4f (SL דינמי)", symbol, pnl, tp, tol)
-
-    # מיפוי נכון של side
-    if trade_obj["side"] == 1:       # Open Long
-        close_side = 4              # Close Long
-    elif trade_obj["side"] == 3:     # Open Short
-        close_side = 2              # Close Short
-    else:
-        logging.warning("⚠️ side לא מוכר לפתיחה (%s) עבור %s – דילוג", trade_obj["side"], symbol)
-        return None
-
-    # הכנה לפקודת סגירה
-    close_obj = {**trade_obj, "side": close_side, "reduceOnly": True}
-
-    # --- בדיקת TP ---
-    if tp is not None and pnl >= tp:
-        logging.info("🎯 TP הושג על %s (PnL=%.2f%%) → סוגר עסקה", symbol, pnl)
-    else:
-        # --- בדיקת SL דינמי ---
-        try:
-            candle = await mexc_api.get_last_closed_candle(symbol, interval="Min1")
-
-            # מחיר נוכחי דרך WS תחילה, אח"כ API כ-fallback
-            global ws_client
-            last_price = ws_client.get_price(symbol) if ws_client else None
-            # if last_price is None:
-            #     last_price = await mexc_api.get_current_price(symbol)
-
-            if not candle or not last_price:
-                logging.warning("⚠️ לא הצלחנו להביא candle/last_price עבור %s", symbol)
-                return None
-
-            close_price = candle["close"]
-
-            # בדיקה עם טולרנס
-            if trade_obj["side"] == 1:  # Long
-                trigger_price = close_price * (1 - tol)
-                if last_price <= trigger_price:
-                    logging.info("🛑 SL דינמי הופעל על %s (Long): last=%.2f <= trigger=%.2f (close=%.2f)", 
-                                 symbol, last_price, trigger_price, close_price)
-                else:
-                    logging.info("⏳ עדיין לא הגיע ל-SL (Long) → last=%.2f > trigger=%.2f", last_price, trigger_price)
-                    return None
-
-            elif trade_obj["side"] == 3:  # Short
-                trigger_price = close_price * (1 + tol)
-                if last_price >= trigger_price:
-                    logging.info("🛑 SL דינמי הופעל על %s (Short): last=%.2f >= trigger=%.2f (close=%.2f)", 
-                                 symbol, last_price, trigger_price, close_price)
-                else:
-                    logging.info("⏳ עדיין לא הגיע ל-SL (Short) → last=%.2f < trigger=%.2f", last_price, trigger_price)
-                    return None
-
-        except Exception as e:
-            logging.error("⚠️ שגיאה בבדיקת SL דינמי עבור %s: %s", symbol, e, exc_info=True)
-            return None
-
-    # --- שליחת ההזמנה בפועל ---
-    resp = await asyncio.to_thread(place_order, close_obj)
-    logging.info("📩 תגובת MEXC לסגירה על %s: %s", symbol, resp)
-
-    if resp.get("success") or resp.get("code") == 2009:  # גם "already closed"
-        open_trades.pop(symbol, None)
-        logging.info("🗂️ open_trades אחרי סגירה:\n%s", json.dumps(open_trades, ensure_ascii=False, indent=2))
-
-        # 📣 טלגרם: הודעת CLOSE רק אחרי סגירה מוצלחת
-        if alert_sink:
-            try:
-                side_txt = "CLOSE-LONG" if close_side == 4 else "CLOSE-SHORT"
-                msg = fmt_close_msg(
-                    symbol=symbol,
-                    side=side_txt,
-                    qty=close_obj.get("vol"),
-                    pnl=pnl if isinstance(pnl, (int, float)) else None
-                )
-                await alert_sink.notify(msg)
-            except Exception as e:
-                logging.warning("⚠️ Telegram CLOSE notify failed for %s: %s", symbol, e)
-
-    return resp
 
 
 # ---------- Main orchestration ----------
@@ -432,79 +326,103 @@ async def run(config_path: str = "config.yaml"):
         tasks.append(asyncio.create_task(engine.run()))
 
     # --- מוניטור TP/SL על העסקאות השמורות ---
+        # --- מוניטור פשוט על העסקאות השמורות ---
     async def monitor_positions():
         """
         מנטרת את כל העסקאות ב-open_trades:
-        - TP מהיר לפי מחיר (ticker) על בסיס tp_price ששמור ב-open_trades
-        - SL דינמי כמו שהיה (דרך check_and_close_if_needed)
-        - סנכרון אם נסגרה ידנית (מחיקה מהמילון)
+        - מנקה עסקאות שנסגרו ידנית או בשרת (TP/SL)
+        - אין יותר חישוב TP/SL בצד שלנו
         """
-        FAST_SLEEP = 0.1  # נשאר ללא שינוי בלוגיקה (אפשר לקצר בהמשך אם תרצה)
+        FAST_SLEEP = 7  # אפשר לקצר או להאריך לפי הצורך
 
         while True:
-            # עותק כדי לא לקרוס אם dict משתנה תוך כדי איטרציה
             for sym_key, trade_obj in list(open_trades.items()):
                 try:
-                    # 🟢 בדיקת קיום פוזיציה אמיתית
+                    # 🟢 בדיקת קיום פוזיציה אמיתית דרך API
                     positions_api = await mexc_api.get_open_positions(sym_key)
                     if (not positions_api
                         or not positions_api.get("success", False)
                         or not positions_api.get("data")):
-                        # נסגרה ידנית / אין נתונים → ניקוי
+                        # נסגרה ידנית / TP/SL הופעל בשרת / אין נתונים → מחיקה מהמילון
                         open_trades.pop(sym_key, None)
-                        logging.info("🧹 נמחק %s מ-open_trades (נסגר ידנית/אין נתונים מה-API)", sym_key)
+                        logging.info("🧹 נמחק %s מ-open_trades (נסגר בשרת/ידנית)", sym_key)
                         continue
 
-                    # ---- TP מהיר לפי מחיר ----
-                    tp_pct    = trade_obj.get("tp_pct")
-                    tp_price  = trade_obj.get("tp_price")
-                    side_open = trade_obj.get("side")  # 1=Long, 3=Short
-
-                    # מחיר נוכחי דרך WS תחילה, אח"כ API כ-fallback
-                    global ws_client
-                    last = ws_client.get_price(sym_key) if ws_client else None
-                    # if last is None:
-                    #     last = await mexc_api.get_current_price(sym_key)
-                    # if last is None:
-                    #     continue
-
-                    if tp_pct is not None and tp_price is not None and side_open in (1, 3):
-                        triggered_tp = (
-                            (side_open == 1 and last >= tp_price) or
-                            (side_open == 3 and last <= tp_price)
-                        )
-                        if triggered_tp:
-                            logging.info(
-                                "🎯 TP מחיר הופעל על %s: last=%.6f, tp=%.6f, side=%s",
-                                sym_key, last, tp_price, side_open
-                            )
-                            try:
-                                # שימוש בפונקציה הקיימת לסגירה
-                                await check_and_close_if_needed(trade_obj, pnl=float(tp_pct), risk_cfg=risk_cfg, alert_sink=alert_sink)
-                                open_trades.pop(sym_key, None)
-                            except Exception as e:
-                                logging.error("❌ שגיאה בסגירת TP מהירה עבור %s: %s", sym_key, e, exc_info=True)
-                            continue  # לסימבול הבא
-
-                    # ---- לא נסגר ב-TP: בדיקת SL דינמי/אחרים ----
-                    pnl = await mexc_api.get_unrealized_pnl(sym_key)
-                    if pnl is not None:
-                        try:
-                            await check_and_close_if_needed(trade_obj, pnl, risk_cfg, alert_sink=alert_sink)
-                        except Exception as e:
-                            logging.error("❌ שגיאה בסגירה לפי TP/SL עבור %s: %s", sym_key, e, exc_info=True)
-                    else:
-                        logging.debug("ℹ️ אין PnL עבור %s (ייתכן שאין פוזיציה בפועל/שגיאת נתונים)", sym_key)
+                    # אפשר להשאיר פה הרחבות בעתיד (למשל: trailing stop)
 
                 except Exception as e:
-                    logging.error(
-                        "⚠️ שגיאה בבדיקת TP/SL עבור %s: %s",
-                        trade_obj.get("symbol", sym_key), e, exc_info=True
-                    )
+                    logging.error("⚠️ שגיאה בבדיקת פוזיציות עבור %s: %s",
+                                  trade_obj.get("symbol", sym_key), e, exc_info=True)
 
-            await asyncio.sleep(FAST_SLEEP)  # קצב בדיקה
+            await asyncio.sleep(FAST_SLEEP)
 
     tasks.append(asyncio.create_task(monitor_positions()))
+
+        # --- Monitor TP/SL דינמי ---
+    async def monitor_tp_sl():
+        """
+        מנטר עסקאות פתוחות ומבצע עדכון דינמי ל-TP/SL:
+        - אם המחיר מתקרב ל-80% מהיעד → מעלה את TP
+        - SL מתעדכן למחיר נוכחי ± tolerance
+        """
+        CHECK_INTERVAL = 2  
+
+        tp_client = MexcTPClient(api_key=mexc_api_key)  # ✅ יצירת אובייקט
+        await tp_client.start()
+
+        while True:
+            for sym_key, trade_obj in list(open_trades.items()):
+                try:
+                    stop_plan_id = trade_obj.get("stopPlanOrderId")
+                    tp_price     = trade_obj.get("tp_price")
+                    sl_tol       = trade_obj.get("sl_tol", 0.0)
+                    side         = trade_obj.get("side")
+                    entry        = trade_obj.get("entry")
+
+                    if not stop_plan_id or not tp_price or not entry:
+                        continue  
+
+                    current_price = ws_client.get_price(sym_key) if ws_client else None
+                    if not current_price:
+                        continue
+
+                    # ===== בדיקת TP =====
+                    updates_done = trade_obj.get("updates_count", 0)
+                    tp_trigger   = entry + (tp_price - entry) * 0.8 if side == 1 else entry - (entry - tp_price) * 0.8
+
+                    if (side == 1 and current_price >= tp_trigger) or (side == 3 and current_price <= tp_trigger):
+                        new_tp = tp_price + (tp_price - entry) if side == 1 else tp_price - (entry - tp_price)
+                        logging.info(f"🚀 [{sym_key}] עדכון TP → ישן={tp_price}, חדש={new_tp}, מחיר נוכחי={current_price}")
+
+                        resp = await tp_client.update_tp_sl(stop_plan_order_id=stop_plan_id,
+                                                            tp=new_tp,
+                                                            sl=trade_obj.get("sl_price"))
+                        if resp.get("success"):
+                            trade_obj["tp_price"] = new_tp
+                            trade_obj["updates_count"] = updates_done + 1
+                            logging.info(f"✅ [{sym_key}] TP עודכן בהצלחה ל-{new_tp}")
+
+                    # ===== עדכון SL =====
+                    if sl_tol > 0:
+                        new_sl = current_price * (1 - sl_tol) if side == 1 else current_price * (1 + sl_tol)
+
+                        if abs(new_sl - trade_obj.get("sl_price", 0)) / current_price > 0.001:
+                            logging.info(f"🛑 [{sym_key}] עדכון SL → ישן={trade_obj.get('sl_price')}, חדש={new_sl}")
+
+                            resp = await tp_client.update_tp_sl(stop_plan_order_id=stop_plan_id,
+                                                                tp=trade_obj.get("tp_price"),
+                                                                sl=new_sl)
+                            if resp.get("success"):
+                                trade_obj["sl_price"] = new_sl
+                                logging.info(f"✅ [{sym_key}] SL עודכן בהצלחה ל-{new_sl}")
+
+                except Exception as e:
+                    logging.error(f"⚠️ שגיאה ב-monitor_tp_sl עבור {sym_key}: {e}", exc_info=True)
+
+            await asyncio.sleep(CHECK_INTERVAL)
+
+
+    tasks.append(asyncio.create_task(monitor_tp_sl()))   # ✅ כאן
 
     # --- הרצה/כיבוי מסודר ---
     try:
@@ -535,7 +453,6 @@ async def run(config_path: str = "config.yaml"):
             await mexc_api.close_session()
         except Exception as e:
             logging.error("⚠️ שגיאה בסגירת session: %s", e, exc_info=True)
-
 
 if __name__ == "__main__":
     try:

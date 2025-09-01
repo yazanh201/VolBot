@@ -83,14 +83,17 @@ class MexcClient:
         """
         side = 1 if last_price > first_price else 3
         obj = {
-            "symbol": trade_cfg["symbol"],          # למשל "SOL_USDT"
-            "side": side,
-            "openType": trade_cfg.get("openType", 1),
-            "type": trade_cfg.get("type", 5),     # Market
-            "vol": trade_cfg.get("vol", 1),
-            "leverage": trade_cfg.get("leverage", 20),
-            "priceProtect": trade_cfg.get("priceProtect", 0),
-        }
+        "symbol": norm_symbol,
+        "side": side,
+        "openType": trade_cfg.get("openType", 1),
+        "type": trade_cfg.get("type", 5),   # Market
+        "vol": vol,
+        "leverage": leverage,
+        "priceProtect": trade_cfg.get("priceProtect", 0),
+        "takeProfitPrice": tp_price,   # ✅ הוספה ישירות כאן
+        "stopLossPrice": sl_price   
+    }
+
         logging.info("📈 Directional order for %s → side=%s (last=%.4f vs first=%.4f)",
                      trade_cfg["symbol"], side, last_price, first_price)
         return await self.place_order(obj)
@@ -108,14 +111,18 @@ class MexcClient:
         """
         side_close = 2 if last_price > first_price else 4
         obj = {
-            "symbol": trade_cfg["symbol"],                 # לדוגמה: "SOL_USDT"
-            "side": side_close,                            # 2=סגור LONG, 4=סגור SHORT
-            "openType": trade_cfg.get("openType", 1),
-            "type": trade_cfg.get("type", 5),            # Market
-            "vol": (vol if vol is not None else trade_cfg.get("vol", 1)),
-            "leverage": trade_cfg.get("leverage", 20),     # לא נדרש לסגירה אבל לא מזיק
-            "priceProtect": trade_cfg.get("priceProtect", 0),
-        }
+        "symbol": norm_symbol,
+        "side": side,
+        "openType": trade_cfg.get("openType", 1),
+        "type": trade_cfg.get("type", 5),   # Market
+        "vol": vol,
+        "leverage": leverage,
+        "priceProtect": trade_cfg.get("priceProtect", 0),
+        "takeProfitPrice": tp_price,   # ✅ הוספה ישירות כאן
+        "stopLossPrice": sl_price   
+
+    }
+
         logging.info("🔻 Close order for %s → side=%s (last=%.4f vs first=%.4f)",
                     trade_cfg["symbol"], side_close, last_price, first_price)
         return await self.place_order(obj)

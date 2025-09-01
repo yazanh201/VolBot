@@ -2,7 +2,7 @@ import time, hmac, hashlib, urllib.parse, logging, asyncio, aiohttp
 from typing import Optional, Dict, Any
 from decimal import Decimal, ROUND_HALF_UP
 from services.rate_limiter import RateLimiter  # <-- חדש
-
+import json
 
 class MexcAPI:
     def __init__(self, api_key: str, secret_key: str, base_url: str = "https://contract.mexc.com",
@@ -260,40 +260,94 @@ class MexcAPI:
         elif side == 3 and last_price <= close_price + tolerance:
             return True
         return False
+    
+    def _sign_body(self, body: dict) -> dict:
+        """
+        יוצר חתימה מיוחדת לבקשות POST עם body (כמו stoporder/change_price)
+        """
+        date_now = str(int(time.time() * 1000))
+        raw = json.dumps(body, separators=(",", ":"))
+        g = hashlib.md5((self.api_key + date_now).encode()).hexdigest()[7:]
+        sign = hashlib.md5((date_now + raw + g).encode()).hexdigest()
+        return {"time": date_now, "sign": sign}
 
-# ==================== MAIN TEST ====================
+    async def update_order_tp_sl(self, order_id: int, tp: float = None, sl: float = None) -> dict:
+        """
+        מעדכן TP/SL להזמנה קיימת (Stop-Limit order).
+        :param order_id: מזהה ההזמנה (orderId) שהוחזר בפתיחה
+        :param tp: מחיר TP חדש (או None אם לא רוצים לשנות)
+        :param sl: מחיר SL חדש (או None אם לא רוצים לשנות)
+        """
+        await self.start_session()
+        url = f"{self.base_url}/api/v1/private/stoporder/change_price"
 
+        payload = {"orderId": order_id}
+        if tp is not None:
+            payload["takeProfitPrice"] = round(float(tp), 3)
+        if sl is not None:
+            payload["stopLossPrice"] = round(float(sl), 3)
+
+        sig = self._sign_body(payload)
+        headers = {
+            "Content-Type": "application/json",
+            "x-mxc-sign": sig["sign"],
+            "x-mxc-nonce": sig["time"],
+            "Authorization": self.api_key
+        }
+
+        async with self.session.post(url, json=payload, headers=headers) as r:
+            try:
+                return await r.json()
+            except Exception:
+                return {"status": r.status, "text": await r.text()}
+
+    async def get_stop_orders(
+        self, 
+        symbol: str = "", 
+        is_finished: int = 0, 
+        page_num: int = 1, 
+        page_size: int = 20
+    ) -> dict:
+        """
+        מחזירה את רשימת ה-Stop Orders (TP/SL).
+        :param symbol: סימבול (למשל "BTC_USDT") או ריק = כל הסימבולים
+        :param is_finished: 0 = פעילים, 1 = היסטוריים
+        :param page_num: מספר עמוד (ברירת מחדל 1)
+        :param page_size: מספר תוצאות לעמוד (ברירת מחדל 20, מקסימום 100)
+        """
+        path = "/api/v1/private/stoporder/list/orders"
+        params = {
+            "symbol": symbol,
+            "is_finished": is_finished,
+            "page_num": page_num,
+            "page_size": page_size
+        }
+        return await self._send_request("GET", path, params, signed=True)
+
+
+
+# ==================== דוגמה לשימוש ====================
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    api = MexcAPI("MEXC_API_KEY", "MEXC_SECRET_KEY")
+    api = MexcAPI("mx0vglUEoSmb5QzewG", "2d0a8e11f7b94ea689c07eddb0a29668")
 
-    # # נבדוק נר אחרון של BTC ו-SOL
-    # for sym in ["BTC_USDT", "SOL_USDT"]:
-    #     candle = api.get_last_closed_candle(sym, interval="Min1")
-    #     if candle:
-    #         print(f"🕯️ נר אחרון עבור {sym}: {candle}")
-    #     else:
-    #         print(f"❌ לא התקבל נר עבור {sym}")
+    async def main():
+        await api.start_session()
+        try:
+            # --- בדיקת פוזיציות פתוחות ---
+            # positions = await api.get_open_positions("SOL_USDT")
+            # print("📊 Open positions:", json.dumps(positions, indent=2, ensure_ascii=False))
 
-    print(api.get_current_price("BTC_USDT"))
-    print(api.get_last_closed_candle("BTC_USDT"))
+            # --- בדיקת Stop Orders (TP/SL) ---
+            stops = await api.get_stop_orders(symbol="SOL_USDT", page_num=1, page_size=10)
+            print("📋 Stop Orders:", json.dumps(stops, indent=2, ensure_ascii=False))
 
+            # --- דוגמה לעדכון TP/SL ---
+            # resp = await api.update_order_tp_sl(order_id=717199153075480064, tp=206.1, sl=199.4)
+            # print("✏️ Update TP/SL:", json.dumps(resp, indent=2, ensure_ascii=False))
 
-# ==================== MAIN TEST ====================
+        finally:
+            await api.close_session()
 
-# if __name__ == "__main__":
-#     logging.basicConfig(level=logging.INFO)
-
-#     api = MexcAPI("mx0vglLPkGS8iQAnTV", "20ffb7c8ea614faf95cf40f631b3f249")
-
-#     percent = 20
-#     leverage = 20
-
-#     try:
-#         vol_btc = api.calc_order_volume("SOL_USDT", percent, leverage)
-#         print(f"➡️  Vol ({percent}% @ {leverage}x):", vol_btc)
-
-
-#     except Exception as e:
-#         print("❌ שגיאה בחישוב:", e)
+    asyncio.run(main())
