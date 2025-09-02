@@ -15,12 +15,14 @@ class MexcTPClient:
         if self._session is None:
             timeout = aiohttp.ClientTimeout(total=30, connect=5, sock_connect=10, sock_read=20)
             self._session = aiohttp.ClientSession(timeout=timeout, trust_env=True)
+            logging.info("🌐 MexcTPClient Session started")
 
     async def close(self):
         """סגירת ה-Session"""
         if self._session:
             await self._session.close()
             self._session = None
+            logging.info("🔌 MexcTPClient Session closed")
 
     # -------- Helpers --------
     @staticmethod
@@ -36,6 +38,7 @@ class MexcTPClient:
         return {"time": date_now, "sign": sign}
 
     async def _send_request(self, url: str, obj: dict) -> dict:
+        """שליחת בקשה עם חתימה + לוגים מפורטים"""
         sig = self._sign(obj)
         headers = {
             "Content-Type": "application/json",
@@ -45,20 +48,30 @@ class MexcTPClient:
             "Authorization": self.api_key
         }
 
-        def _send_blocking():
-            r = curlreq.post(
-                url,
-                headers=headers,
-                json=obj,
-                timeout=30,
-                http_version=CurlHttpVersion.V1_1
-            )
-            try:
-                return r.json()
-            except Exception:
-                return {"status": r.status_code, "text": r.text}
+        logging.debug(f"➡️ שולח בקשה ל־MEXC → {url}")
+        logging.debug(f"📤 גוף הבקשה: {obj}")
+        logging.debug(f"📤 Headers: {headers}")
 
-        return await asyncio.to_thread(_send_blocking)
+        def _send_blocking():
+            try:
+                r = curlreq.post(
+                    url,
+                    headers=headers,
+                    json=obj,
+                    timeout=30,
+                    http_version=CurlHttpVersion.V1_1
+                )
+                try:
+                    return r.json()
+                except Exception:
+                    return {"status": r.status_code, "text": r.text}
+            except Exception as e:
+                logging.error(f"❌ שגיאה בשליחת בקשה ל־MEXC: {e}", exc_info=True)
+                return {"error": str(e)}
+
+        result = await asyncio.to_thread(_send_blocking)
+        logging.debug(f"⬅️ תגובת MEXC: {result}")
+        return result
 
     # -------- API: Update TP/SL --------
     async def update_tp_sl(self, stop_plan_order_id: int,
@@ -70,10 +83,10 @@ class MexcTPClient:
         :param sl: מחיר SL חדש
         """
         if not self.api_key:
-            logging.warning("MEXC API key is empty; skipping update_tp_sl.")
+            logging.warning("⚠️ MEXC API key is empty; skipping update_tp_sl.")
             return {"error": "no_api_key"}
 
-        assert self._session is not None, "MexcTPClient.start() was not called"
+        assert self._session is not None, "❌ MexcTPClient.start() was not called"
 
         url = f"{self.base_url}/api/v1/private/stoporder/change_plan_price"
         obj = {"stopPlanOrderId": int(stop_plan_order_id)}
@@ -83,18 +96,24 @@ class MexcTPClient:
         if sl is not None:
             obj["stopLossPrice"] = round(float(sl), 3)
 
+        logging.info(f"🛠️ עדכון TP/SL עבור stopPlanOrderId={stop_plan_order_id}, tp={tp}, sl={sl}")
         return await self._send_request(url, obj)
 
 
 # ==================== שימוש לדוגמה ====================
 async def main():
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s | %(levelname)s | %(message)s"
+    )
+
     client = MexcTPClient(api_key="WEB7d92dd938df5fdc7718ed07373882d789094923bd2fa8947b4605a61f3278478")
     await client.start()
 
-    # תמיד עם stopPlanOrderId
-    resp = await client.update_tp_sl(stop_plan_order_id=352595892, tp=223.0, sl=195.0)
+    # תמיד עם stopPlanOrderId אמיתי
+    resp = await client.update_tp_sl(stop_plan_order_id=352923254, tp=223.0, sl=195.0)
 
-    print("Update Response:", resp)
+    logging.info(f"✅ Update Response: {resp}")
     await client.close()
 
 
