@@ -3,6 +3,10 @@ from typing import Optional, Dict, Any
 from decimal import Decimal, ROUND_HALF_UP
 from services.rate_limiter import RateLimiter  # <-- חדש
 import json
+import datetime
+from typing import List
+
+
 
 class MexcAPI:
     def __init__(self, api_key: str, secret_key: str, base_url: str = "https://contract.mexc.com",
@@ -223,29 +227,6 @@ class MexcAPI:
                      f"| ContractSize={contract_size} | RawVol={raw_vol:.8f} → Vol={vol}")
         return vol
 
-    async def get_last_closed_candle(self, symbol: str, interval: str = "Min1") -> Optional[dict]:
-        now = time.monotonic()
-        key = (symbol, interval)
-        cached = self._candle_cache.get(key)
-        if cached and (now - cached[1]) < self._candle_ttl:
-            return cached[0]
-
-        data = await self._send_request("GET", f"/api/v1/contract/kline/{symbol}",
-                                        {"interval": interval, "limit": 2}, signed=False, weight=2)
-        try:
-            d = data["data"]
-            candle = {
-                "time": d["time"][-2],
-                "open": float(d["open"][-2]),
-                "close": float(d["close"][-2]),
-                "high": float(d["high"][-2]),
-                "low": float(d["low"][-2]),
-            }
-            self._candle_cache[key] = (candle, now)
-            return candle
-        except Exception:
-            return None
-
     async def can_open_trade(self, symbol: str, side: int, interval: str = "Min1") -> bool:
         candle = await self.get_last_closed_candle(symbol, interval)
         if not candle:
@@ -325,6 +306,89 @@ class MexcAPI:
         return await self._send_request("GET", path, params, signed=True)
 
 
+    async def get_recent_candles(self, symbol: str, interval: str = "Min1", limit: int = 30) -> Optional[List[dict]]:
+        """
+        מחזירה את X הנרות האחרונים של symbol נתון.
+        :param symbol: סימבול (למשל "BTC_USDT")
+        :param interval: טווח הנר (Min1, Min5, Min15, Day1 וכו')
+        :param limit: כמה נרות להביא (מקסימום 2000 לפי ה-API)
+        :return: רשימת נרות בפורמט dict
+        """
+        try:
+            data = await self._send_request(
+                "GET",
+                f"/api/v1/contract/kline/{symbol}",
+                {"interval": interval, "limit": limit},
+                signed=False,
+                weight=2
+            )
+
+            d = data["data"]
+            candles = []
+            for i in range(len(d["time"])):
+                candles.append({
+                    "time": d["time"][i],
+                    "open": float(d["open"][i]),
+                    "close": float(d["close"][i]),
+                    "high": float(d["high"][i]),
+                    "low": float(d["low"][i]),
+                    "vol": float(d["vol"][i])
+                })
+
+            return candles
+
+        except Exception as e:
+            logging.error(f"❌ שגיאה בשליפת {limit} נרות אחרונים עבור {symbol}: {e}")
+            return None
+
+
+
+
+    async def get_candles_with_live(self, symbol: str, interval: str = "Min1", limit: int = 60):
+        """
+        מחזירה גם את 30 הנרות האחרונים הסגורים,
+        גם את הנר הסגור האחרון,
+        וגם את הנר החי (שעדיין רץ).
+        """
+        try:
+            # נבקש limit+1 כדי לכלול גם את הנר החי
+            data = await self._send_request(
+                "GET",
+                f"/api/v1/contract/kline/{symbol}",
+                {"interval": interval, "limit": limit + 1},
+                signed=False,
+                weight=2
+            )
+
+            d = data["data"]
+            candles = []
+            for i in range(len(d["time"])):
+                candles.append({
+                    "time": d["time"][i],
+                    "open": float(d["open"][i]),
+                    "close": float(d["close"][i]),
+                    "high": float(d["high"][i]),
+                    "low": float(d["low"][i]),
+                    "vol": float(d["vol"][i])
+                })
+
+            if len(candles) < 2:
+                return None, None, None
+
+            # נר סגור אחרון (לפני החי)
+            last_closed = candles[-2]
+            # נר חי (עדיין רץ)
+            live = candles[-1]
+            # 30 נרות סגורים אחרונים
+            closed_candles = candles[:-1]
+
+            return closed_candles, last_closed, live
+
+        except Exception as e:
+            logging.error(f"❌ שגיאה בשליפת נרות עבור {symbol}: {e}")
+            return None, None, None
+
+
 
 # ==================== דוגמה לשימוש ====================
 if __name__ == "__main__":
@@ -332,22 +396,47 @@ if __name__ == "__main__":
 
     api = MexcAPI("mx0vglUEoSmb5QzewG", "2d0a8e11f7b94ea689c07eddb0a29668")
 
-    async def main():
-        await api.start_session()
-        try:
-            # --- בדיקת פוזיציות פתוחות ---
-            # positions = await api.get_open_positions("SOL_USDT")
-            # print("📊 Open positions:", json.dumps(positions, indent=2, ensure_ascii=False))
+# async def main():
+#     await api.start_session()
+#     try:
+#         # --- בדיקת פוזיציות פתוחות ---
+#         # positions = await api.get_open_positions("SOL_USDT")
+#         # print("📊 Open positions:", json.dumps(positions, indent=2, ensure_ascii=False))
 
-            # --- בדיקת Stop Orders (TP/SL) ---
-            stops = await api.get_stop_orders(symbol="SOL_USDT", page_num=1, page_size=10)
-            print("📋 Stop Orders:", json.dumps(stops, indent=2, ensure_ascii=False))
+#         # --- בדיקת Stop Orders (TP/SL) ---
+#         stops = await api.get_stop_orders(symbol="SOL_USDT", page_num=1, page_size=10)
+#         print("📋 Stop Orders:", json.dumps(stops, indent=2, ensure_ascii=False))
 
-            # --- דוגמה לעדכון TP/SL ---
-            # resp = await api.update_order_tp_sl(order_id=717199153075480064, tp=206.1, sl=199.4)
-            # print("✏️ Update TP/SL:", json.dumps(resp, indent=2, ensure_ascii=False))
+#         # --- דוגמה לעדכון TP/SL ---
+#         # resp = await api.update_order_tp_sl(order_id=717199153075480064, tp=206.1, sl=199.4)
+#         # print("✏️ Update TP/SL:", json.dumps(resp, indent=2, ensure_ascii=False))
 
-        finally:
-            await api.close_session()
+#         # --- שליפת נר סגור אחרון עם vol ---
+#         # candle = await api.get_last_closed_candle("BTC_USDT", interval="Min1")
+#         # if candle:
+#         #     print(f"🕯️ נר אחרון BTC_USDT → time={candle['time']}, "
+#         #           f"open={candle['open']}, close={candle['close']}, "
+#         #           f"high={candle['high']}, low={candle['low']}, vol={candle['vol']}")
+#         # else:
+#         #     print("❌ לא התקבל נר סגור")
 
-    asyncio.run(main())
+#         candles = await api.get_recent_candles("BTC_USDT", interval="Min1", limit=30)
+#         if candles:
+#             for c in candles:
+#                 print(f"🕯️ time={c['time']} | open={c['open']} | close={c['close']} | vol={c['vol']}")
+#         else:
+#             print("❌ לא התקבלו נרות")
+
+
+
+#         candle = await api.get_candle_by_datetime("BTC_USDT", 2025, 8, 27, 23, 21, interval="Min1")
+#         if candle:
+#             print(f"🕯️ נר 29/8/2025 15:30 → open={candle['open']}, close={candle['close']}, "
+#                 f"high={candle['high']}, low={candle['low']}, vol={candle['vol']}")
+#         else:
+#             print("❌ לא נמצא נר בתאריך הזה")
+
+#     finally:
+#         await api.close_session()
+
+# asyncio.run(main())
