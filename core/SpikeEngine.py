@@ -60,8 +60,8 @@ class SpikeEngine:
                 # 📌 שלושת התנאים חייבים להתקיים
                 conditions_met = (
                     diff >= self.threshold and   # תנאי מחיר
-                    zscore > -2 and            # תנאי Z-Score
-                    diff > atr*0                 # תנאי ATR
+                    zscore > 2 and            # תנאי Z-Score
+                    diff > atr*2                 # תנאי ATR
                 )
 
                 if conditions_met and time.time() >= self._next_allowed_ts:
