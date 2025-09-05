@@ -111,7 +111,7 @@ async def main():
     await client.start()
 
     # תמיד עם stopPlanOrderId אמיתי
-    resp = await client.update_tp_sl(stop_plan_order_id=354133039, tp=223.19, sl=195.25)
+    resp = await client.update_tp_sl(stop_plan_order_id=354649963, tp=122000.7, sl=110000.2)
 
     logging.info(f"✅ Update Response: {resp}")
     await client.close()

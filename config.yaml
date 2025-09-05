@@ -11,7 +11,7 @@ spike:
 
   # סף פערי מחיר מותאם לכל מטבע
   thresholds:
-    BTC_USDT: 140      # BTC → Spike אם ההפרש >= 300$
+    BTC_USDT: 80      # BTC → Spike אם ההפרש >= 300$
     SOL_USDT: 0.3      # SOL → Spike אם ההפרש >= 0.8$
 
 telegram:
@@ -22,7 +22,7 @@ telegram:
 
 risk:
   takeProfitPct: 200        # רווח באחוזים (TP קבוע מתוך config)
-  percentPerTrade: 5      # אחוז מההון לפתיחת עסקה (לכל המטבעות)
+  percentPerTrade: 1      # אחוז מההון לפתיחת עסקה (לכל המטבעות)
   slTolerancePct: 0.001   # טולרנס ל־SL דינמי (0.1%)
 
 mexc_trades:

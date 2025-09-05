@@ -82,7 +82,7 @@ class SpikeEngine:
                     # 📈 פתיחת עסקה (אם יש callback)
                     if self.trade_cb:
                         try:
-                            await self.trade_cb(self.symbol, diff, last_price, close_price)
+                            await self.trade_cb(self.symbol, diff, last_price, close_price, last_closed["close"])
                         except Exception as e:
                             logging.exception("❌ שגיאה ב-trade_cb עבור %s: %s", self.symbol, e)
 

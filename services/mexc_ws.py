@@ -128,6 +128,11 @@ if __name__ == "__main__":
                 sol_close = ws.get_last_closed_price("SOL_USDT")
 
                 print(f"BTC → last={btc_last} | candle_close={btc_close} || SOL → last={sol_last} | candle_close={sol_close}")
+                print(
+                    f"BTC → last={btc_last} | candle_close={btc_close} | last_t={ws.last_t.get('BTC_USDT')} || "
+                    f"SOL → last={sol_last} | candle_close={sol_close} | last_t={ws.last_t.get('SOL_USDT')}"
+                )
+
                 await asyncio.sleep(1)
         except KeyboardInterrupt:
             logging.info("🛑 הופסק ידנית")

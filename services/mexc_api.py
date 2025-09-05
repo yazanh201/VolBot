@@ -390,11 +390,11 @@ class MexcAPI:
 
 
 
-# ==================== דוגמה לשימוש ====================
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+# # ==================== דוגמה לשימוש ====================
+# if __name__ == "__main__":
+#     logging.basicConfig(level=logging.INFO)
 
-    api = MexcAPI("mx0vglUEoSmb5QzewG", "2d0a8e11f7b94ea689c07eddb0a29668")
+#     api = MexcAPI("mx0vglUEoSmb5QzewG", "2d0a8e11f7b94ea689c07eddb0a29668")
 
 # async def main():
 #     await api.start_session()
@@ -404,7 +404,7 @@ if __name__ == "__main__":
 #         # print("📊 Open positions:", json.dumps(positions, indent=2, ensure_ascii=False))
 
 #         # --- בדיקת Stop Orders (TP/SL) ---
-#         stops = await api.get_stop_orders(symbol="SOL_USDT", page_num=1, page_size=10)
+#         stops = await api.get_stop_orders(symbol="BTC_USDT", page_num=1, page_size=10)
 #         print("📋 Stop Orders:", json.dumps(stops, indent=2, ensure_ascii=False))
 
 #         # --- דוגמה לעדכון TP/SL ---
