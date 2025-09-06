@@ -129,7 +129,7 @@ async def open_mexc_order(
     norm_symbol = mexc_api.normalize_symbol(symbol)
 
     # מגבלת עסקאות לשעה
-    if not can_open_new_trade(norm_symbol, max_trades_per_hour=2):
+    if not can_open_new_trade(norm_symbol, max_trades_per_hour=6):
         logging.info("⏳ דילוג → כבר נפתחו 2 עסקאות בשעה האחרונה עבור %s", norm_symbol)
         return {"skipped": "trade_limit_reached", "symbol": norm_symbol}
 
