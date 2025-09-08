@@ -71,7 +71,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
 
     # רמות “נעילת רווח” באחוזי PnL (על המרג'ין)
         # רמות “נעילת רווח” באחוזי PnL (על המרג'ין)
-    LOCK_LEVELS = [22, 52, 102, 200, 250]  # 👈 לניסוי – רמות נמוכות מאוד
+    LOCK_LEVELS = [1, 2, 4, 6, 10]  # 👈 לניסוי – רמות נמוכות מאוד
 
     def calc_upnl_pct(side, entry, curr, lev):
         """
@@ -89,7 +89,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
         Δ%_price ≈ lock_pct/lev  → Long: entry*(1+Δ), Short: entry*(1-Δ).
         """
         step = (lock_pct / 100.0) / float(lev)
-        return round(entry * (1.0 + step) if side == 1 else entry * (1.0 - step), 2)
+        return round(entry * (1.0 + step) if side == 1 else entry * (1.0 - step), 1)
 
     while True:
         if not open_trades:
@@ -108,6 +108,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                 bar_opened   = trade_obj.get("bar_opened")
                 lev          = float(trade_obj.get("lev") or trade_obj.get("leverage") or 1.0)
                 locked_pct   = float(trade_obj.get("locked_pct", 0.0))  # 👈 חדש
+                price_scale  = int(trade_obj.get("price_scale", 2))    # 👈 חדש
 
                 if not stop_plan_id or not entry:
                     logging.warning(f"⚠️ [{sym_key}] דילוג → stop_plan_id={stop_plan_id}, entry={entry}")
@@ -122,10 +123,10 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                     updates_done = trade_obj.get("updates_count", 0)
                     tp_trigger   = entry + (tp_price - entry) * 0.8 if side == 1 else entry - (entry - tp_price) * 0.8
                     if (side == 1 and current_price >= tp_trigger) or (side == 3 and current_price <= tp_trigger):
-                        new_tp = round(tp_price + (tp_price - entry), 2) if side == 1 else round(tp_price - (entry - tp_price), 2)
+                        new_tp = round(tp_price + (tp_price - entry), price_scale) if side == 1 else round(tp_price - (entry - tp_price), price_scale)
                         if (side == 1 and new_tp > tp_price) or (side == 3 and new_tp < tp_price):
                             resp = await tp_client.update_tp_sl(stop_plan_order_id=stop_plan_id, tp=new_tp,
-                                                                sl=round(sl_price, 2) if sl_price else None)
+                                                                sl=round(sl_price, price_scale) if sl_price else None)
                             if resp.get("success") or str(resp.get("code")) in ("0", "200"):
                                 trade_obj["tp_price"] = new_tp
                                 trade_obj["updates_count"] = updates_done + 1
@@ -144,9 +145,9 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                             (side == 3 and current_price is not None and current_price <= entry)
                         )
                         if in_profit_or_flat:
-                            new_sl = round(entry, 2)
+                            new_sl = round(entry, price_scale)
                             resp = await tp_client.update_tp_sl(stop_plan_order_id=stop_plan_id,
-                                                                tp=round(tp_price, 2) if tp_price else None,
+                                                                tp=round(tp_price, price_scale) if tp_price else None,
                                                                 sl=new_sl)
                             if resp.get("success") or str(resp.get("code")) in ("0", "200"):
                                 trade_obj["sl_price"] = new_sl
@@ -172,7 +173,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                 # 3a) “SL לפי נר סגור” (המודל הקיים)
                 if updates_sl >= 1 and closed_price:
                     candidate = closed_price * (1 - sl_tol) if side == 1 else closed_price * (1 + sl_tol)
-                    candidate = round(candidate, 2)
+                    candidate = round(candidate, price_scale)
                     # שלח רק אם משפר:
                     improve = (side == 1 and (sl_price is None or candidate > sl_price)) or \
                               (side == 3 and (sl_price is None or candidate < sl_price))
@@ -201,7 +202,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                 # שליחה
                 if new_sl_to_send and new_sl_to_send != sl_price:
                     resp = await tp_client.update_tp_sl(stop_plan_order_id=stop_plan_id,
-                                                        tp=round(tp_price, 2) if tp_price else None,
+                                                        tp=round(tp_price, price_scale) if tp_price else None,
                                                         sl=new_sl_to_send)
                     if resp.get("success") or str(resp.get("code")) in ("0", "200"):
                         trade_obj["sl_price"] = new_sl_to_send

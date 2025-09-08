@@ -11,8 +11,8 @@ spike:
 
   # סף פערי מחיר מותאם לכל מטבע
   thresholds:
-    BTC_USDT: 120      # BTC → Spike אם ההפרש >= 300$
-    SOL_USDT: 0.4      # SOL → Spike אם ההפרש >= 0.8$
+    BTC_USDT: 3      # BTC → Spike אם ההפרש >= 300$
+    SOL_USDT: 0.6      # SOL → Spike אם ההפרש >= 0.8$
 
 telegram:
   enabled: true

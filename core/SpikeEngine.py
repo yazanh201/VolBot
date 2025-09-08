@@ -41,7 +41,7 @@ class SpikeEngine:
                     await asyncio.sleep(1)
                     continue
 
-                candles = await self.mexc_api.get_recent_candles(self.symbol, self.interval, 60)
+                candles = await self.mexc_api.get_recent_candles(self.symbol, self.interval, 50)
                 if not candles or len(candles) < 2:
                     await asyncio.sleep(self.poll_seconds)
                     continue
@@ -68,8 +68,8 @@ class SpikeEngine:
 
                 conditions_met = (
                     diff >= self.threshold and
-                    zscore > 1.8 and
-                    diff > atr * 1.5
+                    zscore > -2 and
+                    diff > atr * 0
                 )
 
                 if conditions_met and time.time() >= self._next_allowed_ts:

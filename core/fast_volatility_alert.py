@@ -23,23 +23,23 @@ open_trades: dict[str, dict] = {}   # { "BTC_USDT": {payload}, ... }
 # ---------- ENV & Logging ----------
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
-    ],
-)
-
 # logging.basicConfig(
-#     level=logging.DEBUG,
+#     level=logging.WARNING,
 #     format="%(asctime)s | %(levelname)s | %(message)s",
 #     handlers=[
 #         logging.StreamHandler(),
 #         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
 #     ],
 # )
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
+    ],
+)
 
 # ---------- API keys ----------
 mexc_api_key = os.environ.get("MEXC_API_KEY_WEB2", "").strip()
@@ -117,6 +117,7 @@ async def open_mexc_order(
     specs = await cache.get_contract_specs(norm_symbol)
     balance = await cache.get_balance()
     anchor_price = cache.get_last_price(norm_symbol) or last_price
+    price_scale = cache.get_price_scale(norm_symbol)
 
     if not specs or not balance or not anchor_price:
         open_trades.pop(norm_symbol, None)
@@ -154,17 +155,17 @@ async def open_mexc_order(
     tp_price = None
     if tp_pct is not None and anchor_price:
         tp_price = _calc_tp_price(anchor_price, leverage, float(tp_pct), side)
-        obj["takeProfitPrice"] = round(float(tp_price), 2)
+        obj["takeProfitPrice"] = round(float(tp_price), price_scale)
 
     sl_price = None
     if last_closed_price is not None:
-        sl_price = round(float(last_closed_price), 2)
+        sl_price = round(float(last_closed_price), price_scale)
         obj["stopLossPrice"] = sl_price
     else:
         sl_tol = float(risk_cfg.get("slTolerancePct", 0))
         if sl_tol > 0 and anchor_price:
             sl_price = _calc_sl_price(anchor_price, sl_tol, side)
-            obj["stopLossPrice"] = round(float(sl_price), 2)
+            obj["stopLossPrice"] = round(float(sl_price), price_scale)
 
     try:
         resp = await asyncio.to_thread(place_order, obj)
@@ -207,7 +208,8 @@ async def open_mexc_order(
                 "updates_count": 0,
                 "updates_sl": 0,
                 "sl_tol": risk_cfg.get("slTolerancePct", 0.0),
-                "bar_opened": bar_opened
+                "bar_opened": bar_opened,
+                "price_scale": price_scale
             }
             open_trades[norm_symbol] = obj_to_store
             logging.info(f"➕ [{norm_symbol}] נוספה עסקה ל-open_trades:\n{json.dumps(obj_to_store, indent=2, ensure_ascii=False)}")

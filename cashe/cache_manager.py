@@ -68,6 +68,17 @@ class CacheManager:
             logging.error(f"❌ שגיאה בשליפת מחיר חי עבור {symbol}: {e}")
             return None
 
+    def get_price_scale(self, symbol: str) -> int:
+        """
+        מחזירה את מספר הספרות אחרי הנקודה שמותר למחיר (priceScale).
+        נשלף מתוך ה-contract specs ששמור במטמון.
+        """
+        specs = self._specs_cache.get(symbol)
+        if specs:
+            return int(specs.get("priceScale", 2))  # ברירת מחדל: 2
+        return 2
+
+
 
 import asyncio
 import logging
