@@ -6,13 +6,13 @@ spike:
   symbols:
     - SOL_USDT
     - BTC_USDT
-  interval: "Min1"             # סוג הנר לבדיקה (1 דקה)
+  interval: "Min5"             # סוג הנר לבדיקה (1 דקה)
   cooldown_seconds: 5         # המתנה מינימלית בין עסקאות על אותו מטבע
 
   # סף פערי מחיר מותאם לכל מטבע
   thresholds:
-    BTC_USDT: 3      # BTC → Spike אם ההפרש >= 300$
-    SOL_USDT: 0.6      # SOL → Spike אם ההפרש >= 0.8$
+    BTC_USDT: 150      # BTC → Spike אם ההפרש >= 300$
+    SOL_USDT: 0.5      # SOL → Spike אם ההפרש >= 0.8$
 
 telegram:
   enabled: true
@@ -23,7 +23,7 @@ telegram:
 risk:
   takeProfitPct: 300        # רווח באחוזים (TP קבוע מתוך config)
   percentPerTrade: 1      # אחוז מההון לפתיחת עסקה (לכל המטבעות)
-  slTolerancePct: 0.001   # טולרנס ל־SL דינמי (0.1%)
+  slTolerancePct: 0.0001   # טולרנס ל־SL דינמי (0.1%)
 
 mexc_trades:
   SOL_USDT:

@@ -284,7 +284,7 @@ async def run(config_path: str = "config.yaml", cache=None):
     spike_cfg      = cfg.get("spike", {})
     symbols_cfg    = spike_cfg.get("symbols", ["BTC_USDT"])
     thresholds_map = spike_cfg.get("thresholds", {})
-    interval       = spike_cfg.get("interval", "Min1")
+    interval       = spike_cfg.get("interval", "Min5")
     cooldown       = int(spike_cfg.get("cooldown_seconds", 5))
 
     tasks = []
