@@ -71,7 +71,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
 
     # רמות “נעילת רווח” באחוזי PnL (על המרג'ין)
         # רמות “נעילת רווח” באחוזי PnL (על המרג'ין)
-    LOCK_LEVELS = [25, 75, 125, 200, 300]  # 👈 לניסוי – רמות נמוכות מאוד
+    LOCK_LEVELS = [50, 100, 200, 300, 400]  # 👈 לניסוי – רמות נמוכות מאוד
 
     def calc_upnl_pct(side, entry, curr, lev):
         """

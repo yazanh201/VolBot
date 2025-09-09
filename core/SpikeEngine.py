@@ -68,8 +68,8 @@ class SpikeEngine:
 
                 conditions_met = (
                     diff >= self.threshold and
-                    zscore > 1.5 and
-                    diff > atr * 1.5
+                    zscore > 2.5 and
+                    diff > atr * 3.5
                 )
 
                 if conditions_met and time.time() >= self._next_allowed_ts:

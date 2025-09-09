@@ -26,9 +26,9 @@ class MexcWebSocket:
             logging.info(f"📡 נרשמתי ל-ticker עבור {sym}")
 
             # נרשמים ל-kline (נרות דקה)
-            sub_kline = {"method": "sub.kline", "param": {"symbol": sym, "interval": "Min5"}}
+            sub_kline = {"method": "sub.kline", "param": {"symbol": sym, "interval": "Min1"}}
             await self.connection.send(json.dumps(sub_kline))
-            logging.info(f"📡 נרשמתי ל-kline (Min5) עבור {sym}")
+            logging.info(f"📡 נרשמתי ל-kline (Min1) עבור {sym}")
 
     async def listen(self):
         """מאזין להודעות נכנסות ומעדכן מחירים חיים ונרות"""

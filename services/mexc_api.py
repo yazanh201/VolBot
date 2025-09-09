@@ -227,7 +227,7 @@ class MexcAPI:
                      f"| ContractSize={contract_size} | RawVol={raw_vol:.8f} → Vol={vol}")
         return vol
 
-    async def can_open_trade(self, symbol: str, side: int, interval: str = "Min5") -> bool:
+    async def can_open_trade(self, symbol: str, side: int, interval: str = "Min1") -> bool:
         candle = await self.get_last_closed_candle(symbol, interval)
         if not candle:
             return False
@@ -306,7 +306,7 @@ class MexcAPI:
         return await self._send_request("GET", path, params, signed=True)
 
 
-    async def get_recent_candles(self, symbol: str, interval: str = "Min5", limit: int = 30) -> Optional[List[dict]]:
+    async def get_recent_candles(self, symbol: str, interval: str = "Min1", limit: int = 30) -> Optional[List[dict]]:
         """
         מחזירה את X הנרות האחרונים של symbol נתון.
         :param symbol: סימבול (למשל "BTC_USDT")
@@ -344,7 +344,7 @@ class MexcAPI:
 
 
 
-    async def get_candles_with_live(self, symbol: str, interval: str = "Min5", limit: int = 30):
+    async def get_candles_with_live(self, symbol: str, interval: str = "Min1", limit: int = 30):
         """
         מחזירה גם את 30 הנרות האחרונים הסגורים,
         גם את הנר הסגור האחרון,
