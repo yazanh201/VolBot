@@ -66,11 +66,19 @@ class SpikeEngine:
                     f"avgVol={avg_vol:.0f} | zscore={zscore:.2f} | atr={atr:.2f}"
                 )
 
+                                # 🔹 multiplier דינמי – משתנה לפי גודל ה־Zscore
+                multiplier = 3.5
+                if zscore > 10:
+                    multiplier = 2.0   # אם הזינוק חריג במיוחד – נקל
+                elif zscore < 3:
+                    multiplier = 4   # אם הזינוק גבולי – נקשיח
+
                 conditions_met = (
                     diff >= self.threshold and
                     zscore > 2.5 and
-                    diff > atr * 3.5
+                    diff > atr * multiplier
                 )
+
 
                 if conditions_met and time.time() >= self._next_allowed_ts:
                     seconds_left = self._seconds_left_in_candle(live_candle["time"])
