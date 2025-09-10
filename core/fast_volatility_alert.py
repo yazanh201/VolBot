@@ -221,6 +221,7 @@ async def open_mexc_order(
                     f"⚖️ Leverage: {lev}x\n"
                     f"🎯 TP: {obj_to_store.get('tp_price')}\n"
                     f"🛑 SL: {obj_to_store.get('sl_price')}\n"
+                    f"Entry : {obj_to_store.get('entry')}\n"
                 )
                 for i in range(1):
                     await alert_sink.notify(msg)
