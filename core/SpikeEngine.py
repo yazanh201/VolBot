@@ -4,7 +4,7 @@ from helpers.CandleAnalyzer import CandleAnalyzer
 
 
 class SpikeEngine:
-    def __init__(self, symbol: str, threshold: float, interval: str,
+    def __init__(self, symbol: str, interval: str,
                  cooldown_seconds: int,
                  alert_sink,
                  mexc_api,
@@ -13,7 +13,6 @@ class SpikeEngine:
                  trade_cb: Optional[Callable[[str, float, float, float, float], Awaitable[None]]] = None,
                  poll_seconds: float = 0.5):
         self.symbol = symbol.upper()
-        self.threshold = float(threshold)
         self.interval = interval
         self.cooldown_seconds = int(cooldown_seconds)
         self.alert_sink = alert_sink
@@ -41,7 +40,7 @@ class SpikeEngine:
                     await asyncio.sleep(1)
                     continue
 
-                candles = await self.mexc_api.get_recent_candles(self.symbol, self.interval, 50)
+                candles = await self.mexc_api.get_recent_candles(self.symbol, self.interval, 30)
                 if not candles or len(candles) < 2:
                     await asyncio.sleep(self.poll_seconds)
                     continue
@@ -66,17 +65,19 @@ class SpikeEngine:
                     f"avgVol={avg_vol:.0f} | zscore={zscore:.2f} | atr={atr:.2f}"
                 )
 
-                                # 🔹 multiplier דינמי – משתנה לפי גודל ה־Zscore
-                multiplier = 3.5
-                if zscore > 10:
-                    multiplier = 2.0   # אם הזינוק חריג במיוחד – נקל
-                elif zscore < 3:
-                    multiplier = 4   # אם הזינוק גבולי – נקשיח
+                # 🚀 קביעת threshold דינמי לפי zscore
+                dynamic_threshold = None
+                if zscore < 2.5:
+                    dynamic_threshold = None   # 👈 לא נפתח עסקה בכלל
+                elif 2.5 <= zscore < 6:
+                    dynamic_threshold = atr * 1.5
+                else:  # zscore >= 6
+                    dynamic_threshold = atr * 1.0
 
+                # בדיקה אם התנאים מתקיימים
                 conditions_met = (
-                    diff >= self.threshold and
-                    zscore > 2.5 and
-                    diff > atr * multiplier
+                    dynamic_threshold is not None and
+                    diff >= dynamic_threshold
                 )
 
 

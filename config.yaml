@@ -7,12 +7,12 @@ spike:
     - SOL_USDT
     - BTC_USDT
   interval: "Min1"             # סוג הנר לבדיקה (1 דקה)
-  cooldown_seconds: 5         # המתנה מינימלית בין עסקאות על אותו מטבע
+  cooldown_seconds: 180         # המתנה מינימלית בין עסקאות על אותו מטבע
 
   # סף פערי מחיר מותאם לכל מטבע
-  thresholds:
-    BTC_USDT: 200      # BTC → Spike אם ההפרש >= 300$
-    SOL_USDT: 0.7      # SOL → Spike אם ההפרש >= 0.8$
+  # thresholds:
+  #   BTC_USDT: 200      # BTC → Spike אם ההפרש >= 300$
+  #   SOL_USDT: 0.03      # SOL → Spike אם ההפרש >= 0.8$
 
 telegram:
   enabled: true

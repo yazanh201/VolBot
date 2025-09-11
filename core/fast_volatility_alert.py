@@ -303,7 +303,7 @@ async def run(config_path: str = "config.yaml", cache=None):
         logging.info(f"🔧 הגדרת threshold עבור {norm_sym}: {threshold}")
 
         engine = SpikeEngine(
-            norm_sym, threshold, interval, cooldown,
+            norm_sym, interval, cooldown,
             alert_sink, mexc_api, ws_client,
             open_trades=open_trades,   # 👈 נעביר את ה־dict לפנים
             trade_cb=trade_cb
