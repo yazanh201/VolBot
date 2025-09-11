@@ -9,7 +9,7 @@ class SpikeEngine:
                  alert_sink,
                  mexc_api,
                  ws,
-                 open_trades: dict,   # 👈 נוסיף את ה־dict כאן
+                 open_trades: dict,
                  trade_cb: Optional[Callable[[str, float, float, float, float], Awaitable[None]]] = None,
                  poll_seconds: float = 0.5):
         self.symbol = symbol.upper()
@@ -18,7 +18,7 @@ class SpikeEngine:
         self.alert_sink = alert_sink
         self.mexc_api = mexc_api
         self.ws = ws
-        self.open_trades = open_trades   # 👈 שמירה לשימוש פנימי
+        self.open_trades = open_trades
         self.trade_cb = trade_cb
         self._next_allowed_ts: float = 0.0
         self.poll_seconds = float(poll_seconds)
@@ -34,9 +34,9 @@ class SpikeEngine:
     async def run(self):
         while True:
             try:
-                # 👇 בדיקה אם יש עסקה פתוחה → לא נבדוק את הסימבול
+                # 👇 אם יש עסקה פתוחה – דילוג
                 if self.symbol in self.open_trades:
-                    logging.debug(f"⏸️ {self.symbol} יש עסקה פתוחה → דילוג על בדיקות")
+                    logging.debug(f"⏸️ {self.symbol} יש עסקה פתוחה → דילוג")
                     await asyncio.sleep(1)
                     continue
 
@@ -68,7 +68,7 @@ class SpikeEngine:
                 # 🚀 קביעת threshold דינמי לפי zscore
                 dynamic_threshold = None
                 if zscore < 2.5:
-                    dynamic_threshold = None   # 👈 לא נפתח עסקה בכלל
+                    dynamic_threshold = None   # לא פותחים עסקה
                 elif 2.5 <= zscore < 6:
                     dynamic_threshold = atr * 1.5
                 else:  # zscore >= 6
@@ -80,7 +80,6 @@ class SpikeEngine:
                     diff >= dynamic_threshold
                 )
 
-
                 if conditions_met and time.time() >= self._next_allowed_ts:
                     seconds_left = self._seconds_left_in_candle(live_candle["time"])
                     if seconds_left <= 10:
@@ -89,10 +88,16 @@ class SpikeEngine:
 
                     self._next_allowed_ts = time.time() + self.cooldown_seconds
 
+                    # פתיחת עסקה בפועל
                     if self.trade_cb:
                         asyncio.create_task(
                             self.trade_cb(self.symbol, diff, last_price, close_price, last_closed["close"])
                         )
+
+                    if dynamic_threshold is not None:
+                        dyn_str = f"{dynamic_threshold:.4f}"
+                    else:
+                        dyn_str = "N/A"
 
                     msg = (
                         f"⚡ Spike Detected!\n"
@@ -100,13 +105,19 @@ class SpikeEngine:
                         f"Diff={diff:.2f}\n"
                         f"Zscore={zscore:.2f}\n"
                         f"ATR={atr:.2f}\n"
-                        f"DynamicThreshold={dynamic_threshold:.4f if dynamic_threshold else 'N/A'}\n"
+                        f"DynamicThreshold={dyn_str}\n"
                         f"LiveVol={live_vol:.0f}\n"
                         f"AvgVol={avg_vol:.0f}"
                     )
+
+
                     if self.alert_sink:
-                        asyncio.create_task(self.alert_sink.notify(msg))
-                    logging.info(msg)
+                        logging.info(f"📤 שולח הודעה לטלגרם עבור {self.symbol} ...")
+                        try:
+                            await self.alert_sink.notify(msg)
+                            logging.info("✅ ההודעה נשלחה לטלגרם")
+                        except Exception as e:
+                            logging.error(f"❌ שגיאה בשליחת טלגרם: {e}")
 
             except Exception as e:
                 logging.error("⚠️ שגיאה ב-SpikeEngine עבור %s: %s", self.symbol, e, exc_info=True)
