@@ -95,8 +95,14 @@ class SpikeEngine:
                         )
 
                     msg = (
-                        f"⚡ Spike Detected!\nSymbol: {self.symbol}\n"
-                        f"Diff={diff:.2f}, Zscore={zscore:.2f}, ATR={atr:.2f}"
+                        f"⚡ Spike Detected!\n"
+                        f"Symbol: {self.symbol}\n"
+                        f"Diff={diff:.2f}\n"
+                        f"Zscore={zscore:.2f}\n"
+                        f"ATR={atr:.2f}\n"
+                        f"DynamicThreshold={dynamic_threshold:.4f if dynamic_threshold else 'N/A'}\n"
+                        f"LiveVol={live_vol:.0f}\n"
+                        f"AvgVol={avg_vol:.0f}"
                     )
                     if self.alert_sink:
                         asyncio.create_task(self.alert_sink.notify(msg))
