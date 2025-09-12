@@ -13,7 +13,7 @@ class CandleAnalyzer:
         """
         self.api = api
 
-    async def get_candles(self, symbol: str, interval: str = "Min1", limit: int = 30) -> Tuple[List[Dict], Dict, Dict]:
+    async def get_candles(self, symbol: str, interval: str = "Min1", limit: int = 50) -> Tuple[List[Dict], Dict, Dict]:
         """
         מחזירה את 30 הנרות האחרונים הסגורים, הנר הסגור האחרון והנר החי.
         """
@@ -62,7 +62,7 @@ class CandleAnalyzer:
 
         return np.mean(trs)
 
-    async def analyze(self, symbol: str, interval: str = "Min1", limit: int = 30) -> Optional[Dict]:
+    async def analyze(self, symbol: str, interval: str = "Min1", limit: int = 50) -> Optional[Dict]:
         """
         מביאה נרות, מחשבת z-score ו-ATR לנר החי,
         תוך שימוש בנתוני 30 נרות סגורים + נר סגור אחרון + נר חי.
@@ -102,7 +102,7 @@ async def main():
 
     await api.start_session()
     try:
-        result = await analyzer.analyze("SOL_USDT", interval="Min1", limit=30)
+        result = await analyzer.analyze("SOL_USDT", interval="Min1", limit=50)
         if result:
             print("📊 תוצאה:")
             for k, v in result.items():

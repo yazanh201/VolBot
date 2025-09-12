@@ -40,7 +40,7 @@ class SpikeEngine:
                     await asyncio.sleep(1)
                     continue
 
-                candles = await self.mexc_api.get_recent_candles(self.symbol, self.interval, 30)
+                candles = await self.mexc_api.get_recent_candles(self.symbol, self.interval, 50)
                 if not candles or len(candles) < 2:
                     await asyncio.sleep(self.poll_seconds)
                     continue
@@ -67,12 +67,12 @@ class SpikeEngine:
 
                 # 🚀 קביעת threshold דינמי לפי zscore
                 dynamic_threshold = None
-                if zscore < 2.5:
+                if zscore < 2:
                     dynamic_threshold = None   # לא פותחים עסקה
-                elif 2.5 <= zscore < 6:
-                    dynamic_threshold = atr * 1.5
+                elif 2 <= zscore < 6:
+                    dynamic_threshold = atr * 1
                 else:  # zscore >= 6
-                    dynamic_threshold = atr * 1.0
+                    dynamic_threshold = atr * 0.5
 
                 # בדיקה אם התנאים מתקיימים
                 conditions_met = (
