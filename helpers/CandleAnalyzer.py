@@ -15,7 +15,7 @@ class CandleAnalyzer:
 
     async def get_candles(self, symbol: str, interval: str = "Min1", limit: int = 50) -> Tuple[List[Dict], Dict, Dict]:
         """
-        מחזירה את 30 הנרות האחרונים הסגורים, הנר הסגור האחרון והנר החי.
+        מחזירה את הנרות האחרונים, הנר הסגור האחרון והנר החי.
         """
         closed, last_closed, live = await self.api.get_candles_with_live(symbol, interval, limit)
         if not closed or not last_closed or not live:
@@ -62,17 +62,55 @@ class CandleAnalyzer:
 
         return np.mean(trs)
 
+    def calc_body_range(self, candle: Dict) -> float:
+        """
+        יחס גוף/טווח: |close - open| ÷ (high - low)
+        ערך גבוה → נר עם מומנטום (גוף גדול יחסית לפתיל).
+        """
+        body = abs(candle["close"] - candle["open"])
+        rng = candle["high"] - candle["low"]
+        return body / rng if rng > 0 else 0.0
+
+    def calc_bollinger_percent(self, candles: List[Dict], price: float, period: int = 20, stddev: float = 2.0) -> float:
+        """
+        מחשבת %B (מיקום בתוך בולינג'ר בנדס).
+        %B = (price - Lower) / (Upper - Lower)
+        """
+        closes = [c["close"] for c in candles[-period:]]
+        if len(closes) < period:
+            return 0.5  # ברירת מחדל: באמצע
+
+        mean = np.mean(closes)
+        std = np.std(closes)
+        upper = mean + stddev * std
+        lower = mean - stddev * std
+
+        return (price - lower) / (upper - lower) if (upper - lower) > 0 else 0.5
+
+    def calc_rvol(self, candles: List[Dict], live_vol: float, period: int = 30) -> float:
+        """
+        מחשבת Relative Volume (RVOL): live_vol ÷ mean(volume[-period:])
+        """
+        vols = [c["vol"] for c in candles[-period:]]
+        avg_vol = np.mean(vols) if vols else 0.0
+        return live_vol / avg_vol if avg_vol > 0 else 0.0
+
     async def analyze(self, symbol: str, interval: str = "Min1", limit: int = 50) -> Optional[Dict]:
         """
-        מביאה נרות, מחשבת z-score ו-ATR לנר החי,
-        תוך שימוש בנתוני 30 נרות סגורים + נר סגור אחרון + נר חי.
+        מביאה נרות, מחשבת z-score, ATR, Body/Range, %B ו-RVOL לנר החי.
         """
         closed, last_closed, live = await self.get_candles(symbol, interval, limit)
         if not closed:
             return None
 
+        # חישובים קיימים
         z = self.calc_zscore(closed + [live])  # מחשבים על הנרות הסגורים + הנר החי
         atr = self.calc_atr(closed)
+
+        # חישובים חדשים
+        body_range = self.calc_body_range(live)
+        bb_percent = self.calc_bollinger_percent(closed, live["close"])
+        rvol = self.calc_rvol(closed, live["vol"])
 
         result = {
             "time": live["time"],
@@ -83,6 +121,9 @@ class CandleAnalyzer:
             "vol": live["vol"],
             "zscore": z,
             "atr": atr,
+            "body_range": body_range,
+            "bb_percent": bb_percent,
+            "rvol": rvol,
             "last_closed": last_closed  # נשמור גם את הנר הסגור האחרון
         }
         return result
@@ -95,8 +136,9 @@ from helpers.CandleAnalyzer import CandleAnalyzer
 
 
 async def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
+    # ⚠️ שים את ה-API KEY וה-SECRET שלך כאן או בקובץ .env
     api = MexcAPI("API_KEY", "SECRET_KEY")
     analyzer = CandleAnalyzer(api)
 
@@ -104,9 +146,16 @@ async def main():
     try:
         result = await analyzer.analyze("SOL_USDT", interval="Min1", limit=50)
         if result:
-            print("📊 תוצאה:")
-            for k, v in result.items():
-                print(f"{k}: {v}")
+            print("📊 תוצאה מלאה:")
+            print(f"Time: {result['time']}")
+            print(f"Open: {result['open']}, High: {result['high']}, Low: {result['low']}, Close: {result['close']}")
+            print(f"Volume: {result['vol']}")
+            print(f"Zscore: {result['zscore']:.2f}")
+            print(f"ATR: {result['atr']:.2f}")
+            print(f"Body/Range: {result['body_range']:.2f}")
+            print(f"%B (Bollinger): {result['bb_percent']:.2f}")
+            print(f"RVOL: {result['rvol']:.2f}")
+            print(f"Last Closed Candle: {result['last_closed']}")
         else:
             print("❌ לא התקבלה תוצאה")
     finally:

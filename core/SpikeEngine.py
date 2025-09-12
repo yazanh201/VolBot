@@ -1,4 +1,4 @@
-import asyncio, logging, time, random, numpy as np
+import asyncio, logging, time, random
 from typing import Optional, Callable, Awaitable
 from helpers.CandleAnalyzer import CandleAnalyzer
 
@@ -40,29 +40,33 @@ class SpikeEngine:
                     await asyncio.sleep(1)
                     continue
 
-                candles = await self.mexc_api.get_recent_candles(self.symbol, self.interval, 50)
-                if not candles or len(candles) < 2:
+                # 📊 נשתמש ב־CandleAnalyzer
+                analysis = await self.analyzer.analyze(self.symbol, self.interval, 50)
+                if not analysis:
                     await asyncio.sleep(self.poll_seconds)
                     continue
 
-                last_closed = candles[-2]
-                live_candle = candles[-1]
                 last_price = self.ws.get_price(self.symbol)
-
                 if not last_price:
                     await asyncio.sleep(self.poll_seconds)
                     continue
 
-                close_price = last_closed["close"]
+                close_price = analysis["last_closed"]["close"]
                 diff = abs(last_price - close_price)
-                zscore = self.analyzer.calc_zscore(candles)
-                atr = self.analyzer.calc_atr(candles)
-                live_vol = live_candle["vol"]
-                avg_vol = np.mean([c["vol"] for c in candles[:-1]])
+
+                # שליפת מדדים שחושבו מראש
+                zscore = analysis["zscore"]
+                atr = analysis["atr"]
+                live_vol = analysis["vol"]
+                avg_vol = None  # נחשב אם צריך, אבל אפשר גם להוסיף avg_vol ל-analyze
+                body_range = analysis["body_range"]
+                bb_percent = analysis["bb_percent"]
+                rvol = analysis["rvol"]
 
                 logging.info(
                     f"📊 {self.symbol} | diff={diff:.2f} | vol={live_vol:.0f} | "
-                    f"avgVol={avg_vol:.0f} | zscore={zscore:.2f} | atr={atr:.2f}"
+                    f"zscore={zscore:.2f} | atr={atr:.2f} | body/range={body_range:.2f} | "
+                    f"%B={bb_percent:.2f} | rvol={rvol:.2f}"
                 )
 
                 # 🚀 קביעת threshold דינמי לפי zscore
@@ -74,14 +78,24 @@ class SpikeEngine:
                 else:  # zscore >= 6
                     dynamic_threshold = atr * 0.5
 
-                # בדיקה אם התנאים מתקיימים
+                # 🧠 סינון נוסף לפי המדדים החדשים
+                strong_body = body_range >= 0.30         # נר עם גוף משמעותי
+                at_band_edge = (bb_percent >= 0.80 or bb_percent <= 0.20)  # בקצה בולינג'ר
+                high_rvol = rvol >= 1.5                  # נפח גבוה מהרגיל
+
+                # בדיקה אם כל התנאים מתקיימים
                 conditions_met = (
                     dynamic_threshold is not None and
-                    diff >= dynamic_threshold
+                    diff >= dynamic_threshold and
+                    strong_body and
+                    at_band_edge and
+                    high_rvol
                 )
 
+
+
                 if conditions_met and time.time() >= self._next_allowed_ts:
-                    seconds_left = self._seconds_left_in_candle(live_candle["time"])
+                    seconds_left = self._seconds_left_in_candle(analysis["time"])
                     if seconds_left <= 10:
                         await asyncio.sleep(self.poll_seconds)
                         continue
@@ -91,13 +105,10 @@ class SpikeEngine:
                     # פתיחת עסקה בפועל
                     if self.trade_cb:
                         asyncio.create_task(
-                            self.trade_cb(self.symbol, diff, last_price, close_price, last_closed["close"])
+                            self.trade_cb(self.symbol, diff, last_price, close_price, analysis["last_closed"]["close"])
                         )
 
-                    if dynamic_threshold is not None:
-                        dyn_str = f"{dynamic_threshold:.4f}"
-                    else:
-                        dyn_str = "N/A"
+                    dyn_str = f"{dynamic_threshold:.4f}" if dynamic_threshold else "N/A"
 
                     msg = (
                         f"⚡ Spike Detected!\n"
@@ -107,9 +118,10 @@ class SpikeEngine:
                         f"ATR={atr:.2f}\n"
                         f"DynamicThreshold={dyn_str}\n"
                         f"LiveVol={live_vol:.0f}\n"
-                        f"AvgVol={avg_vol:.0f}"
+                        f"Body/Range={body_range:.2f}\n"
+                        f"%B={bb_percent:.2f}\n"
+                        f"RVOL={rvol:.2f}"
                     )
-
 
                     if self.alert_sink:
                         logging.info(f"📤 שולח הודעה לטלגרם עבור {self.symbol} ...")
