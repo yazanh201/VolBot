@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 import websockets
 
 WS_URL = "wss://contract.mexc.com/edge"
@@ -13,6 +14,7 @@ class MexcWebSocket:
         self.prices: dict[str, float] = {}
         self.closed_candles: dict[str, float] = {}   # מחיר סגירה של נרות סגורים
         self.last_t: dict[str, int] = {}             # timestamp אחרון לכל סימבול
+        self.candle_start: dict[str, float] = {}     # מתי התחיל הנר הנוכחי (epoch seconds)
 
     async def connect(self):
         """התחברות ל-WebSocket של MEXC"""
@@ -49,7 +51,7 @@ class MexcWebSocket:
                     sym = data.get("symbol")
                     kline = data.get("data", {})
                     if sym and kline:
-                        current_t = kline.get("t")   # timestamp של תחילת הנר
+                        current_t = kline.get("t")   # timestamp של תחילת הנר (ms)
                         close_price = float(kline.get("c", 0))
 
                         # אם הגיע t חדש -> הנר הקודם נסגר
@@ -58,8 +60,16 @@ class MexcWebSocket:
                             self.closed_candles[sym] = prev_close
                             logging.info(f"🕯️ {sym} נר סגור → close={prev_close}")
 
+                            # נר חדש התחיל → שמור זמן התחלה מקומי
+                            self.candle_start[sym] = time.time()
+                            logging.info(f"⏱️ {sym} נר חדש התחיל, מאפסים טיימר")
+
                         # עדכון ה־t האחרון
                         self.last_t[sym] = current_t
+
+                        # אם עדיין אין candle_start, נתחיל אותו בפעם הראשונה
+                        if sym not in self.candle_start:
+                            self.candle_start[sym] = time.time()
 
                 elif data.get("channel") == "pong":
                     logging.debug("📡 התקבל Pong")
@@ -99,6 +109,16 @@ class MexcWebSocket:
         """מחזיר את מחיר הסגירה של הנר האחרון (אם קיים)"""
         return self.closed_candles.get(symbol)
 
+    def get_candle_timing(self, symbol: str, interval_sec: int = 60) -> dict | None:
+        """מחזיר מידע על זמן הנר הנוכחי"""
+        if symbol not in self.candle_start:
+            return None
+        now = time.time()
+        start = self.candle_start[symbol]
+        elapsed = int(now - start)
+        left = max(0, interval_sec - elapsed)
+        return {"elapsed": elapsed, "left": left, "interval": interval_sec}
+
     async def close(self):
         """סגירה מסודרת של החיבור"""
         self.keep_running = False
@@ -106,6 +126,7 @@ class MexcWebSocket:
             await self.connection.close()
             self.connection = None
         logging.info("🔌 WebSocket נסגר נקי")
+
 
 # --- בדיקה מקומית ---
 if __name__ == "__main__":
@@ -123,16 +144,10 @@ if __name__ == "__main__":
         try:
             while True:
                 btc_last = ws.get_price("BTC_USDT")
-                sol_last = ws.get_price("SOL_USDT")
                 btc_close = ws.get_last_closed_price("BTC_USDT")
-                sol_close = ws.get_last_closed_price("SOL_USDT")
+                btc_timing = ws.get_candle_timing("BTC_USDT")
 
-                print(f"BTC → last={btc_last} | candle_close={btc_close} || SOL → last={sol_last} | candle_close={sol_close}")
-                print(
-                    f"BTC → last={btc_last} | candle_close={btc_close} | last_t={ws.last_t.get('BTC_USDT')} || "
-                    f"SOL → last={sol_last} | candle_close={sol_close} | last_t={ws.last_t.get('SOL_USDT')}"
-                )
-
+                print(f"BTC → last={btc_last} | closed={btc_close} | timing={btc_timing}")
                 await asyncio.sleep(1)
         except KeyboardInterrupt:
             logging.info("🛑 הופסק ידנית")

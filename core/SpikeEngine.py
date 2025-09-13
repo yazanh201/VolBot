@@ -71,17 +71,25 @@ class SpikeEngine:
 
                 # 🚀 קביעת threshold דינמי לפי zscore
                 dynamic_threshold = None
-                if zscore < 2:
+                if zscore < 2.5:
                     dynamic_threshold = None   # לא פותחים עסקה
-                elif 2 <= zscore < 6:
+                elif 2.5 <= zscore < 6:
                     dynamic_threshold = atr * 1
                 else:  # zscore >= 6
                     dynamic_threshold = atr * 0.5
 
                 # 🧠 סינון נוסף לפי המדדים החדשים
-                strong_body = body_range >= 0.30         # נר עם גוף משמעותי
-                at_band_edge = (bb_percent >= 0.80 or bb_percent <= 0.20)  # בקצה בולינג'ר
-                high_rvol = rvol >= 1.5                  # נפח גבוה מהרגיל
+                strong_body = body_range >= 0.40
+                at_band_edge = (bb_percent >= 0.80 or bb_percent <= 0.20)
+                high_rvol = rvol >= 2
+
+                # ✅ כיוון לפי %B
+                if bb_percent >= 0.80:   # קרוב ל־1 → למעלה
+                    suggested_side = 1   # LONG
+                elif bb_percent <= 0.20: # קרוב ל־0 → למטה
+                    suggested_side = 3   # SHORT
+                else:
+                    suggested_side = 0   # אין כיוון ברור
 
                 # בדיקה אם כל התנאים מתקיימים
                 conditions_met = (
@@ -89,14 +97,21 @@ class SpikeEngine:
                     diff >= dynamic_threshold and
                     strong_body and
                     at_band_edge and
-                    high_rvol
+                    high_rvol and
+                    suggested_side != 0    # 👈 נוסיף גם את זה
                 )
 
 
-
                 if conditions_met and time.time() >= self._next_allowed_ts:
-                    seconds_left = self._seconds_left_in_candle(analysis["time"])
-                    if seconds_left <= 10:
+                    # ⏱️ שימוש בלוגיקה החדשה מ־mexc_ws
+                    timing = self.ws.get_candle_timing(self.symbol, interval_sec=60)
+                    if not timing:
+                        await asyncio.sleep(self.poll_seconds)
+                        continue
+
+                    seconds_left = timing["left"]
+                    if seconds_left <= 11:
+                        logging.debug(f"⏱️ {self.symbol} פחות מ-11 שניות לנר → דילוג")
                         await asyncio.sleep(self.poll_seconds)
                         continue
 
@@ -105,7 +120,8 @@ class SpikeEngine:
                     # פתיחת עסקה בפועל
                     if self.trade_cb:
                         asyncio.create_task(
-                            self.trade_cb(self.symbol, diff, last_price, close_price, analysis["last_closed"]["close"])
+                            self.trade_cb(self.symbol, diff, last_price, close_price,
+                                          analysis["last_closed"]["close"], suggested_side)
                         )
 
                     dyn_str = f"{dynamic_threshold:.4f}" if dynamic_threshold else "N/A"

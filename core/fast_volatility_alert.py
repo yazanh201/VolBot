@@ -89,7 +89,8 @@ async def open_mexc_order(
     risk_cfg: dict,
     cache,
     alert_sink=None,
-    last_closed_price: float = None
+    last_closed_price: float = None,
+    suggested_side: int = None
 ):
     norm_symbol = mexc_api.normalize_symbol(symbol)
 
@@ -111,7 +112,7 @@ async def open_mexc_order(
         open_trades.pop(norm_symbol, None)
         return {"skipped": "neutral_direction", "symbol": norm_symbol}
 
-    side = 1 if last_price > first_price else 3
+    side = suggested_side if suggested_side is not None else (1 if last_price > first_price else 3)
 
     # --- שימוש ב-CacheManager ---
     specs = await cache.get_contract_specs(norm_symbol)
@@ -267,7 +268,7 @@ async def run(config_path: str = "config.yaml", cache=None):
     mexc_trades = cfg.get("mexc_trades", {})
     risk_cfg    = cfg.get("risk", {"takeProfitPct": 50, "stopLossPct": -20})
 
-    async def trade_cb(symbol, price_range, last_price, first_price, last_closed_price):
+    async def trade_cb(symbol, price_range, last_price, first_price, last_closed_price, suggested_side):
         norm_symbol = mexc_api.normalize_symbol(symbol)
         if norm_symbol in open_trades:
             logging.info("⛔ דילוג (trade_cb) → כבר קיימת עסקה על %s", norm_symbol)
@@ -279,7 +280,7 @@ async def run(config_path: str = "config.yaml", cache=None):
         await open_mexc_order(
             norm_symbol, price_range, last_price, first_price,
             trade_cfg, risk_cfg, cache, alert_sink=alert_sink,
-            last_closed_price=last_closed_price
+            last_closed_price=last_closed_price,suggested_side=suggested_side
         )
 
     spike_cfg      = cfg.get("spike", {})
