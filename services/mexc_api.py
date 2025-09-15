@@ -389,54 +389,76 @@ class MexcAPI:
             return None, None, None
 
 
-
-# # ==================== דוגמה לשימוש ====================
-# if __name__ == "__main__":
-#     logging.basicConfig(level=logging.INFO)
-
-#     api = MexcAPI("mx0vglUEoSmb5QzewG", "2d0a8e11f7b94ea689c07eddb0a29668")
-
-# async def main():
-#     await api.start_session()
-#     try:
-#         # --- בדיקת פוזיציות פתוחות ---
-#         # positions = await api.get_open_positions("SOL_USDT")
-#         # print("📊 Open positions:", json.dumps(positions, indent=2, ensure_ascii=False))
-
-#         # --- בדיקת Stop Orders (TP/SL) ---
-#         stops = await api.get_stop_orders(symbol="BTC_USDT", page_num=1, page_size=10)
-#         print("📋 Stop Orders:", json.dumps(stops, indent=2, ensure_ascii=False))
-
-#         # --- דוגמה לעדכון TP/SL ---
-#         # resp = await api.update_order_tp_sl(order_id=717199153075480064, tp=206.1, sl=199.4)
-#         # print("✏️ Update TP/SL:", json.dumps(resp, indent=2, ensure_ascii=False))
-
-#         # --- שליפת נר סגור אחרון עם vol ---
-#         # candle = await api.get_last_closed_candle("BTC_USDT", interval="Min1")
-#         # if candle:
-#         #     print(f"🕯️ נר אחרון BTC_USDT → time={candle['time']}, "
-#         #           f"open={candle['open']}, close={candle['close']}, "
-#         #           f"high={candle['high']}, low={candle['low']}, vol={candle['vol']}")
-#         # else:
-#         #     print("❌ לא התקבל נר סגור")
-
-#         candles = await api.get_recent_candles("BTC_USDT", interval="Min1", limit=30)
-#         if candles:
-#             for c in candles:
-#                 print(f"🕯️ time={c['time']} | open={c['open']} | close={c['close']} | vol={c['vol']}")
-#         else:
-#             print("❌ לא התקבלו נרות")
+    async def get_fair_price(self, symbol: str) -> Optional[float]:
+        """מחזיר את ה-Fair Price של החוזה"""
+        symbol = self.normalize_symbol(symbol)
+        data = await self._send_request("GET", f"/api/v1/contract/fair_price/{symbol}", signed=False, weight=1)
+        try:
+            return float(data["data"]["fairPrice"])
+        except Exception:
+            logging.error(f"❌ שגיאה בשליפת fair price: {data}")
+            return None
 
 
+    async def get_funding_rate(self, symbol: str) -> Optional[float]:
+        """מחזיר את ה-Funding Rate הנוכחי"""
+        symbol = self.normalize_symbol(symbol)
+        data = await self._send_request("GET", f"/api/v1/contract/funding_rate/{symbol}", signed=False, weight=1)
+        try:
+            return float(data["data"]["fundingRate"])
+        except Exception:
+            logging.error(f"❌ שגיאה בשליפת funding rate: {data}")
+            return None
 
-#         candle = await api.get_candle_by_datetime("BTC_USDT", 2025, 8, 27, 23, 21, interval="Min1")
-#         if candle:
-#             print(f"🕯️ נר 29/8/2025 15:30 → open={candle['open']}, close={candle['close']}, "
-#                 f"high={candle['high']}, low={candle['low']}, vol={candle['vol']}")
-#         else:
-#             print("❌ לא נמצא נר בתאריך הזה")
+    async def get_order_book(self, symbol: str, limit: int = 20) -> Optional[dict]:
+        """מחזיר את עומק הספר (Order Book)"""
+        symbol = self.normalize_symbol(symbol)
+        data = await self._send_request("GET", f"/api/v1/contract/depth/{symbol}",
+                                        {"limit": limit}, signed=False, weight=1)
+        try:
+            ob = data["data"]  # ⬅️ ניגש ל־data["data"]
+            return {
+                "asks": ob["asks"],
+                "bids": ob["bids"],
+                "timestamp": ob.get("timestamp")
+            }
+        except Exception:
+            logging.error(f"❌ שגיאה בשליפת order book: {data}")
+            return None
 
-#     finally:
-#         await api.close_session()
 
-# asyncio.run(main())
+
+# ==================== דוגמה לשימוש ====================
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    # 🔑 הכנס את ה-API KEY וה-SECRET שלך
+    api = MexcAPI("mx0vglUEoSmb5QzewG", "2d0a8e11f7b94ea689c07eddb0a29668")
+
+    async def main():
+        await api.start_session()
+        try:
+            symbol = "BTC_USDT"
+
+            # --- בדיקת Fair Price ---
+            fair = await api.get_fair_price(symbol)
+            print(f"📈 Fair Price for {symbol}: {fair}")
+
+            # --- בדיקת Funding Rate ---
+            funding = await api.get_funding_rate(symbol)
+            print(f"💸 Funding Rate for {symbol}: {funding}")
+
+            # --- בדיקת Order Book ---
+            order_book = await api.get_order_book(symbol, limit=5)
+            if order_book:
+                print(f"📊 Order Book for {symbol}:")
+                print("Bids:", order_book["bids"][:3])  # רק שלוש הראשונות
+                print("Asks:", order_book["asks"][:3])
+                print("Timestamp:", order_book["timestamp"])
+            else:
+                print("❌ לא התקבל Order Book")
+
+        finally:
+            await api.close_session()
+
+    asyncio.run(main())

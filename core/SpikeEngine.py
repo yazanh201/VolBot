@@ -1,30 +1,41 @@
 import asyncio, logging, time, random
 from typing import Optional, Callable, Awaitable
 from helpers.CandleAnalyzer import CandleAnalyzer
+from helpers.MarketAnalyzer import MarketAnalyzer  # 👈 נוסיף גם את זה
 
 
 class SpikeEngine:
+    # --- thresholds פר סימבול ---
+    SYMBOL_THRESHOLDS = {
+        "BTC_USDT": {"spread": 0.3, "imbalance": 0.05, "deviation": 0.00015},
+        "SOL_USDT": {"spread": 0.5, "imbalance": 0.08, "deviation": 0.0002},
+    }
+
     def __init__(self, symbol: str, interval: str,
                  cooldown_seconds: int,
                  alert_sink,
                  mexc_api,
                  ws,
+                 cache,   # 👈 נוסיף כאן
                  open_trades: dict,
                  trade_cb: Optional[Callable[[str, float, float, float, float], Awaitable[None]]] = None,
                  poll_seconds: float = 0.5):
+
         self.symbol = symbol.upper()
         self.interval = interval
         self.cooldown_seconds = int(cooldown_seconds)
         self.alert_sink = alert_sink
         self.mexc_api = mexc_api
         self.ws = ws
+        self.cache = cache    # 👈 לשמור
         self.open_trades = open_trades
         self.trade_cb = trade_cb
         self._next_allowed_ts: float = 0.0
         self.poll_seconds = float(poll_seconds)
 
         self.analyzer = CandleAnalyzer(self.mexc_api)
-
+        self.market_analyzer = MarketAnalyzer(self.cache)
+        
     def _seconds_left_in_candle(self, candle_ts: int) -> int:
         now = int(time.time())
         bar_opened = candle_ts // 1000
@@ -58,7 +69,7 @@ class SpikeEngine:
                 zscore = analysis["zscore"]
                 atr = analysis["atr"]
                 live_vol = analysis["vol"]
-                avg_vol = None  # נחשב אם צריך, אבל אפשר גם להוסיף avg_vol ל-analyze
+                avg_vol = None
                 body_range = analysis["body_range"]
                 bb_percent = analysis["bb_percent"]
                 rvol = analysis["rvol"]
@@ -84,12 +95,40 @@ class SpikeEngine:
                 high_rvol = rvol >= 2
 
                 # ✅ כיוון לפי %B
-                if bb_percent >= 0.80:   # קרוב ל־1 → למעלה
+                if bb_percent >= 0.80:
                     suggested_side = 1   # LONG
-                elif bb_percent <= 0.20: # קרוב ל־0 → למטה
+                elif bb_percent <= 0.20:
                     suggested_side = 3   # SHORT
                 else:
                     suggested_side = 0   # אין כיוון ברור
+
+                # --- 🔥 MarketAnalyzer integration ---
+                extra_conditions = True
+                market_analysis = await self.market_analyzer.analyze_market(self.symbol)
+                if market_analysis:
+                    imbalance = market_analysis["imbalance"]
+                    deviation = market_analysis["deviation"]
+                    spread = market_analysis["spread"]
+
+                    # thresholds מותאמים לפי הסימבול
+                    t = self.SYMBOL_THRESHOLDS.get(
+                        self.symbol,
+                        {"spread": 0.5, "imbalance": 0.05, "deviation": 0.0002}
+                    )
+
+                    extra_conditions = (
+                        spread is not None and spread < t["spread"] and
+                        abs(imbalance) > t["imbalance"] and
+                        abs(deviation) > t["deviation"]
+                    )
+
+                    logging.info(
+                        f"📊 MarketAnalysis {self.symbol} | "
+                        f"spread={spread:.4f} (thr={t['spread']}) | "
+                        f"imbalance={imbalance:.4f} (thr={t['imbalance']}) | "
+                        f"deviation={deviation:.6f} (thr={t['deviation']})"
+                    )
+                # -----------------------------------
 
                 # בדיקה אם כל התנאים מתקיימים
                 conditions_met = (
@@ -98,9 +137,9 @@ class SpikeEngine:
                     strong_body and
                     at_band_edge and
                     high_rvol and
-                    suggested_side != 0    # 👈 נוסיף גם את זה
+                    suggested_side != 0 and
+                    extra_conditions
                 )
-
 
                 if conditions_met and time.time() >= self._next_allowed_ts:
                     # ⏱️ שימוש בלוגיקה החדשה מ־mexc_ws
@@ -136,7 +175,10 @@ class SpikeEngine:
                         f"LiveVol={live_vol:.0f}\n"
                         f"Body/Range={body_range:.2f}\n"
                         f"%B={bb_percent:.2f}\n"
-                        f"RVOL={rvol:.2f}"
+                        f"RVOL={rvol:.2f}\n"
+                        f"Spread={spread:.4f}\n"
+                        f"Imbalance={imbalance:.4f}\n"
+                        f"Deviation={deviation:.6f}"
                     )
 
                     if self.alert_sink:
