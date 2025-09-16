@@ -7,8 +7,8 @@ from helpers.MarketAnalyzer import MarketAnalyzer  # 👈 נוסיף גם את �
 class SpikeEngine:
     # --- thresholds פר סימבול ---
     SYMBOL_THRESHOLDS = {
-        "BTC_USDT": {"spread": 0.3, "imbalance": 0.05, "deviation": 0.00015},
-        "SOL_USDT": {"spread": 0.5, "imbalance": 0.08, "deviation": 0.0002},
+        "BTC_USDT": {"spread": 0.09, "imbalance": 0.15, "deviation": 0.0005},
+        "SOL_USDT": {"spread": 0.01, "imbalance": 0.15, "deviation": 0.0005},
     }
 
     def __init__(self, symbol: str, interval: str,
@@ -35,7 +35,7 @@ class SpikeEngine:
 
         self.analyzer = CandleAnalyzer(self.mexc_api)
         self.market_analyzer = MarketAnalyzer(self.cache)
-        
+
     def _seconds_left_in_candle(self, candle_ts: int) -> int:
         now = int(time.time())
         bar_opened = candle_ts // 1000
@@ -52,7 +52,7 @@ class SpikeEngine:
                     continue
 
                 # 📊 נשתמש ב־CandleAnalyzer
-                analysis = await self.analyzer.analyze(self.symbol, self.interval, 50)
+                analysis = await self.analyzer.analyze(self.symbol, self.interval, 20)
                 if not analysis:
                     await asyncio.sleep(self.poll_seconds)
                     continue
@@ -82,9 +82,9 @@ class SpikeEngine:
 
                 # 🚀 קביעת threshold דינמי לפי zscore
                 dynamic_threshold = None
-                if zscore < 2.5:
+                if zscore < 3:
                     dynamic_threshold = None   # לא פותחים עסקה
-                elif 2.5 <= zscore < 6:
+                elif 3 <= zscore < 6:
                     dynamic_threshold = atr * 1
                 else:  # zscore >= 6
                     dynamic_threshold = atr * 0.5
@@ -92,7 +92,7 @@ class SpikeEngine:
                 # 🧠 סינון נוסף לפי המדדים החדשים
                 strong_body = body_range >= 0.40
                 at_band_edge = (bb_percent >= 0.80 or bb_percent <= 0.20)
-                high_rvol = rvol >= 2
+                high_rvol = rvol >= 2.5
 
                 # ✅ כיוון לפי %B
                 if bb_percent >= 0.80:

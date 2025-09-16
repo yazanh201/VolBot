@@ -344,7 +344,7 @@ class MexcAPI:
 
 
 
-    async def get_candles_with_live(self, symbol: str, interval: str = "Min1", limit: int = 30):
+    async def get_candles_with_live(self, symbol: str, interval: str = "Min1", limit: int = 20):
         """
         מחזירה גם את 30 הנרות האחרונים הסגורים,
         גם את הנר הסגור האחרון,
