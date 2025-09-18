@@ -124,15 +124,15 @@ class SpikeEngine:
                 # ==================================
                 # 🧠 סינון נוסף – הקשחת תנאי איכות
                 # ==================================
-                strong_body = body_range >= 0.50               # היה 0.40
-                at_band_edge = (bb_percent >= 0.90 or          # היה 0.80/0.20
-                                bb_percent <= 0.10)
+                strong_body = body_range >= 0.40               # היה 0.40
+                at_band_edge = (bb_percent >= 0.80 or          # היה 0.80/0.20
+                                bb_percent <= 0.20)
                 high_rvol = rvol >= 3.0                        # היה 2
 
                 # ✅ כיוון לפי %B (קשיח יותר)
-                if bb_percent >= 0.90:
+                if bb_percent >= 0.80:
                     suggested_side = 1   # LONG
-                elif bb_percent <= 0.10:
+                elif bb_percent <= 0.20:
                     suggested_side = 3   # SHORT
                 else:
                     suggested_side = 0   # אין כיוון ברור
