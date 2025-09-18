@@ -1,40 +1,70 @@
 import asyncio, logging, time, random
 from typing import Optional, Callable, Awaitable
 from helpers.CandleAnalyzer import CandleAnalyzer
-from helpers.MarketAnalyzer import MarketAnalyzer  # 👈 נוסיף גם את זה
+
+# =========================
+# ⚙️ פרמטרים פר־סימבול (כוונון)
+# =========================
+SYMBOL_PARAMS = {
+    "BTC_USDT": {
+        "atr_floor": 100.0,   # אם ATR קטן מכאן → נקשיח משמעותית
+        "abs_diff_floor": 60,  # מינימום דולר לשינוי אמיתי שלא נתרגש מרעש
+        "min_z": 3.0
+    },
+    "SOL_USDT": {
+        "atr_floor": 0.65,
+        "abs_diff_floor": 0.35,
+        "min_z": 3.0
+    }
+}
+DEFAULT_PARAMS = {"atr_floor": 1e9, "abs_diff_floor": 0.0, "min_z": 3.0}
+
+def _get_sym_params(sym: str):
+    return SYMBOL_PARAMS.get(sym, DEFAULT_PARAMS)
+
+def _compute_dynamic_threshold(symbol: str, atr: float, zscore: float):
+    """
+    מחזיר סף דינמי מוקשח:
+    - אם ATR נמוך → מכפילים גדולים יותר (לחתוך רעש).
+    - אם ATR גבוה → טיפה מרפים (לא לפספס תנועה אמיתית).
+      Z ב-[3..6): ATR*2 (נמוך) / ATR*1.25 (גבוה)
+      Z ≥ 6:      ATR*1.25 (נמוך) / ATR*0.75 (גבוה)
+    """
+    p = _get_sym_params(symbol)
+    if atr is None or atr <= 0:
+        return None
+    if zscore < p["min_z"]:
+        return None
+
+    low_atr = atr < p["atr_floor"]
+
+    if 3.0 <= zscore < 6.0:
+        return atr * (2.5 if low_atr else 1.5)
+    else:  # zscore >= 6.0
+        return atr * (1.5 if low_atr else 1.0)
 
 
 class SpikeEngine:
-    # --- thresholds פר סימבול ---
-    SYMBOL_THRESHOLDS = {
-        "BTC_USDT": {"spread": 0.09, "imbalance": 0.15, "deviation": 0.0005},
-        "SOL_USDT": {"spread": 0.01, "imbalance": 0.15, "deviation": 0.0005},
-    }
-
     def __init__(self, symbol: str, interval: str,
                  cooldown_seconds: int,
                  alert_sink,
                  mexc_api,
                  ws,
-                 cache,   # 👈 נוסיף כאן
                  open_trades: dict,
                  trade_cb: Optional[Callable[[str, float, float, float, float], Awaitable[None]]] = None,
                  poll_seconds: float = 0.5):
-
         self.symbol = symbol.upper()
         self.interval = interval
         self.cooldown_seconds = int(cooldown_seconds)
         self.alert_sink = alert_sink
         self.mexc_api = mexc_api
         self.ws = ws
-        self.cache = cache    # 👈 לשמור
         self.open_trades = open_trades
         self.trade_cb = trade_cb
         self._next_allowed_ts: float = 0.0
         self.poll_seconds = float(poll_seconds)
 
         self.analyzer = CandleAnalyzer(self.mexc_api)
-        self.market_analyzer = MarketAnalyzer(self.cache)
 
     def _seconds_left_in_candle(self, candle_ts: int) -> int:
         now = int(time.time())
@@ -52,7 +82,7 @@ class SpikeEngine:
                     continue
 
                 # 📊 נשתמש ב־CandleAnalyzer
-                analysis = await self.analyzer.analyze(self.symbol, self.interval, 20)
+                analysis = await self.analyzer.analyze(self.symbol, self.interval, 50)
                 if not analysis:
                     await asyncio.sleep(self.poll_seconds)
                     continue
@@ -63,82 +93,70 @@ class SpikeEngine:
                     continue
 
                 close_price = analysis["last_closed"]["close"]
-                diff = abs(last_price - close_price)
+                diff_raw = last_price - close_price
+                diff_abs = abs(diff_raw)
 
                 # שליפת מדדים שחושבו מראש
                 zscore = analysis["zscore"]
                 atr = analysis["atr"]
                 live_vol = analysis["vol"]
-                avg_vol = None
                 body_range = analysis["body_range"]
                 bb_percent = analysis["bb_percent"]
                 rvol = analysis["rvol"]
 
                 logging.info(
-                    f"📊 {self.symbol} | diff={diff:.2f} | vol={live_vol:.0f} | "
+                    f"📊 {self.symbol} | diff={diff_abs:.2f} | vol={live_vol:.0f} | "
                     f"zscore={zscore:.2f} | atr={atr:.2f} | body/range={body_range:.2f} | "
                     f"%B={bb_percent:.2f} | rvol={rvol:.2f}"
                 )
 
-                # 🚀 קביעת threshold דינמי לפי zscore
-                dynamic_threshold = None
-                if zscore < 3:
-                    dynamic_threshold = None   # לא פותחים עסקה
-                elif 3 <= zscore < 6:
-                    dynamic_threshold = atr * 1
-                else:  # zscore >= 6
-                    dynamic_threshold = atr * 0.5
+                # ==============================
+                # 🚀 סף דינמי מוקשח לפי Z ו-ATR
+                # ==============================
+                dynamic_threshold = _compute_dynamic_threshold(self.symbol, atr, zscore)
 
-                # 🧠 סינון נוסף לפי המדדים החדשים
-                strong_body = body_range >= 0.40
-                at_band_edge = (bb_percent >= 0.80 or bb_percent <= 0.20)
-                high_rvol = rvol >= 2.5
+                # חיתוך רעשים קטנים: אם diff האבסולוטי קטן מרף המינימום—אל תתריע
+                abs_floor = _get_sym_params(self.symbol)["abs_diff_floor"]
+                if diff_abs < abs_floor:
+                    dynamic_threshold = None
+                    logging.debug(f"🧹 {self.symbol} diff_abs<{abs_floor} → ביטול טריגר קטן")
 
-                # ✅ כיוון לפי %B
-                if bb_percent >= 0.80:
+                # ==================================
+                # 🧠 סינון נוסף – הקשחת תנאי איכות
+                # ==================================
+                strong_body = body_range >= 0.50               # היה 0.40
+                at_band_edge = (bb_percent >= 0.90 or          # היה 0.80/0.20
+                                bb_percent <= 0.10)
+                high_rvol = rvol >= 3.0                        # היה 2
+
+                # ✅ כיוון לפי %B (קשיח יותר)
+                if bb_percent >= 0.90:
                     suggested_side = 1   # LONG
-                elif bb_percent <= 0.20:
+                elif bb_percent <= 0.10:
                     suggested_side = 3   # SHORT
                 else:
                     suggested_side = 0   # אין כיוון ברור
 
-                # --- 🔥 MarketAnalyzer integration ---
-                extra_conditions = True
-                market_analysis = await self.market_analyzer.analyze_market(self.symbol)
-                if market_analysis:
-                    imbalance = market_analysis["imbalance"]
-                    deviation = market_analysis["deviation"]
-                    spread = market_analysis["spread"]
+                # השוואה בכיוון נכון (לונג → עלייה, שורט → ירידה)
+                if suggested_side == 1:      # LONG
+                    signed_diff = diff_raw      # מצופה חיובי
+                elif suggested_side == 3:     # SHORT
+                    signed_diff = -diff_raw    # מצופה חיובי אחרי היפוך סימן
+                else:
+                    signed_diff = 0
 
-                    # thresholds מותאמים לפי הסימבול
-                    t = self.SYMBOL_THRESHOLDS.get(
-                        self.symbol,
-                        {"spread": 0.5, "imbalance": 0.05, "deviation": 0.0002}
-                    )
-
-                    extra_conditions = (
-                        spread is not None and spread < t["spread"] and
-                        abs(imbalance) > t["imbalance"] and
-                        abs(deviation) > t["deviation"]
-                    )
-
-                    logging.info(
-                        f"📊 MarketAnalysis {self.symbol} | "
-                        f"spread={spread:.4f} (thr={t['spread']}) | "
-                        f"imbalance={imbalance:.4f} (thr={t['imbalance']}) | "
-                        f"deviation={deviation:.6f} (thr={t['deviation']})"
-                    )
-                # -----------------------------------
-
-                # בדיקה אם כל התנאים מתקיימים
+                # ==============================
+                # ✅ בדיקת תנאים קשיחה
+                # ==============================
+                min_z = _get_sym_params(self.symbol)["min_z"]
                 conditions_met = (
                     dynamic_threshold is not None and
-                    diff >= dynamic_threshold and
+                    signed_diff >= dynamic_threshold and   # נדרשת תנועה בכיוון
+                    zscore >= min_z and
                     strong_body and
                     at_band_edge and
                     high_rvol and
-                    suggested_side != 0 and
-                    extra_conditions
+                    suggested_side != 0
                 )
 
                 if conditions_met and time.time() >= self._next_allowed_ts:
@@ -159,7 +177,7 @@ class SpikeEngine:
                     # פתיחת עסקה בפועל
                     if self.trade_cb:
                         asyncio.create_task(
-                            self.trade_cb(self.symbol, diff, last_price, close_price,
+                            self.trade_cb(self.symbol, diff_abs, last_price, close_price,
                                           analysis["last_closed"]["close"], suggested_side)
                         )
 
@@ -168,17 +186,14 @@ class SpikeEngine:
                     msg = (
                         f"⚡ Spike Detected!\n"
                         f"Symbol: {self.symbol}\n"
-                        f"Diff={diff:.2f}\n"
+                        f"Diff={diff_abs:.2f}\n"
                         f"Zscore={zscore:.2f}\n"
                         f"ATR={atr:.2f}\n"
                         f"DynamicThreshold={dyn_str}\n"
                         f"LiveVol={live_vol:.0f}\n"
                         f"Body/Range={body_range:.2f}\n"
                         f"%B={bb_percent:.2f}\n"
-                        f"RVOL={rvol:.2f}\n"
-                        f"Spread={spread:.4f}\n"
-                        f"Imbalance={imbalance:.4f}\n"
-                        f"Deviation={deviation:.6f}"
+                        f"RVOL={rvol:.2f}"
                     )
 
                     if self.alert_sink:
@@ -201,27 +216,27 @@ class SpikeEngine:
 #     from utils.alert_sink import AlertSink
 #     from services.mexc_api import MexcAPI
 #     from services.mexc_ws import MexcWebSocket
-
+#
 #     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s | %(levelname)s | %(message)s")
-
+#
 #     load_dotenv()
 #     mexc_api = MexcAPI(os.getenv("MEXC_API_KEY_WEB2", ""), os.getenv("MEXC_API_SECRET_WEB", ""))
 #     alert_sink = AlertSink(tg_enabled=False, bot_token="", chat_ids=[])
-
+#
 #     # WebSocket – נריץ ברקע
 #     ws = MexcWebSocket(["BTC_USDT", "SOL_USDT"])
-    
+#     
 #     async def main():
 #         asyncio.create_task(ws.run())
 #         engine = SpikeEngine(
 #             symbol="BTC_USDT",
-#             threshold=100,        # 📌 סטייה נדרשת מהסגירה
 #             interval="Min1",
-#             cooldown_seconds=30,  # 📌 זמן המתנה בין התרעות
+#             cooldown_seconds=30,
 #             alert_sink=alert_sink,
 #             mexc_api=mexc_api,
-#             ws=ws
+#             ws=ws,
+#             open_trades={}
 #         )
 #         await engine.run()
-
+#
 #     asyncio.run(main())

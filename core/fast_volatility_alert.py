@@ -305,7 +305,7 @@ async def run(config_path: str = "config.yaml", cache=None):
 
         engine = SpikeEngine(
             norm_sym, interval, cooldown,
-            alert_sink, mexc_api, ws_client, cache, 
+            alert_sink, mexc_api, ws_client,
             open_trades=open_trades,   # 👈 נעביר את ה־dict לפנים
             trade_cb=trade_cb
         )
