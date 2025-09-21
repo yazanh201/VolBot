@@ -304,11 +304,17 @@ async def run(config_path: str = "config.yaml", cache=None):
         logging.info(f"🔧 הגדרת threshold עבור {norm_sym}: {threshold}")
 
         engine = SpikeEngine(
-            norm_sym, interval, cooldown,
-            alert_sink, mexc_api, ws_client,
-            open_trades=open_trades,   # 👈 נעביר את ה־dict לפנים
+            symbol=norm_sym,
+            threshold=threshold,       # 👈 פה הערך מה-config.yaml
+            interval=interval,
+            cooldown_seconds=cooldown,
+            alert_sink=alert_sink,
+            mexc_api=mexc_api,
+            ws=ws_client,
+            open_trades=open_trades,
             trade_cb=trade_cb
         )
+
 
         tasks.append(asyncio.create_task(engine.run()))
 
