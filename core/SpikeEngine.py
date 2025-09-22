@@ -79,23 +79,25 @@ class SpikeEngine:
                 # 🧠 סינון נוסף לפי המדדים החדשים
                 strong_body = body_range >= 0.40
                 at_band_edge = (bb_percent >= 0.80 or bb_percent <= 0.20)
-                high_rvol = rvol >= 0
+                high_rvol = rvol >= 3
 
                 # ✅ כיוון לפי %B
-                if bb_percent >= 0:   # קרוב ל־1 → למעלה
+                if bb_percent >= 0.80:   # קרוב ל־1 → למעלה
                     suggested_side = 1   # LONG
-                elif bb_percent <= 0: # קרוב ל־0 → למטה
+                elif bb_percent <= 0.20: # קרוב ל־0 → למטה
                     suggested_side = 3   # SHORT
                 else:
-                    suggested_side = 3   # אין כיוון ברור
+                    suggested_side = 0   # אין כיוון ברור
 
                 # בדיקה אם כל התנאים מתקיימים
                 conditions_met = (
                     threshold_to_use is not None and
                     diff >= threshold_to_use and
+                    strong_body and
+                    at_band_edge and
                     high_rvol and
                     suggested_side != 0 and
-                    abs(zscore) >= -3
+                    abs(zscore) >= 3
                 )
 
 
@@ -108,8 +110,8 @@ class SpikeEngine:
                         continue
 
                     seconds_left = timing["left"]
-                    if seconds_left <= 11:
-                        logging.debug(f"⏱️ {self.symbol} פחות מ-11 שניות לנר → דילוג")
+                    if seconds_left <= 15:
+                        logging.debug(f"⏱️ {self.symbol} פחות מ-15 שניות לנר → דילוג")
                         await asyncio.sleep(self.poll_seconds)
                         continue
 
