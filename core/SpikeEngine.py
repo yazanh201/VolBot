@@ -108,8 +108,8 @@ class SpikeEngine:
                         continue
 
                     seconds_left = timing["left"]
-                    if seconds_left <= 15:
-                        logging.debug(f"⏱️ {self.symbol} פחות מ-15 שניות לנר → דילוג")
+                    if seconds_left <= 11:
+                        logging.debug(f"⏱️ {self.symbol} פחות מ-11 שניות לנר → דילוג")
                         await asyncio.sleep(self.poll_seconds)
                         continue
 
