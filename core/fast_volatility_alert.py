@@ -96,12 +96,12 @@ async def open_mexc_order(
 
     # מגבלת עסקאות לשעה
     if not can_open_new_trade(norm_symbol, max_trades_per_hour=6):
-        logging.info("⏳ דילוג → כבר נפתחו 2 עסקאות בשעה האחרונה עבור %s", norm_symbol)
+        logging.info("⏳ דילוג → כבר נפתחו מספיק עסקאות לשעה האחרונה עבור %s", norm_symbol)
         return {"skipped": "trade_limit_reached", "symbol": norm_symbol}
 
     # מניעת פתיחה כפולה
     if norm_symbol in open_trades:
-        logging.info("⛔ דילוג (dict) → כבר קיימת עסקה על %s", norm_symbol)
+        logging.info("⛔ דילוג → כבר קיימת עסקה על %s", norm_symbol)
         return {"skipped": "local_open_trade_exists", "symbol": norm_symbol}
 
     open_trades[norm_symbol] = {"pending": True}
@@ -168,6 +168,7 @@ async def open_mexc_order(
             sl_price = _calc_sl_price(anchor_price, sl_tol, side)
             obj["stopLossPrice"] = round(float(sl_price), price_scale)
 
+    # --- פתיחת עסקה מיידית ---
     try:
         resp = await asyncio.to_thread(place_order, obj)
     except Exception as e:
@@ -176,63 +177,71 @@ async def open_mexc_order(
 
     success = bool(resp.get("success", False))
     if success or resp.get("code") in (0, 200, "200"):
-        try:
-            entry, lev = None, leverage
-            pos, ws_entry = await asyncio.gather(
-                mexc_api.get_open_positions(norm_symbol),
-                asyncio.to_thread(lambda: cache.get_last_price(norm_symbol))
+        # נשמור מיד ב-open_trades כדי לדעת שיש עסקה פתוחה
+        open_trades[norm_symbol] = {**obj, "orderId": resp.get("data", {}).get("orderId")}
+        logging.info(f"🚀 [{norm_symbol}] עסקה נפתחה ונשמרה ב-open_trades")
+
+        # שליחת הודעה לטלגרם מייד
+        if alert_sink:
+            msg = (
+                f"🚀 עסקה נפתחה על {norm_symbol}\n"
+                f"📈 Side: {'Long' if side == 1 else 'Short'}\n"
+                f"⚖️ Leverage: {leverage}x\n"
+                f"🎯 TP: {obj.get('takeProfitPrice')}\n"
+                f"🛑 SL: {obj.get('stopLossPrice')}\n"
             )
-            if pos and pos.get("success") and pos.get("data"):
-                p = pos["data"][0]
-                entry = float(p.get("holdAvgPrice", ws_entry))
-                lev = float(p.get("leverage", leverage))
-            else:
-                entry = ws_entry
+            try:
+                await alert_sink.notify(msg)
+            except Exception as e:
+                logging.error(f"❌ שגיאה בשליחת הודעה לטלגרם: {e}")
 
-            stop_orders = await mexc_api.get_stop_orders(symbol=norm_symbol)
-            stop_plan_id = None
-            if stop_orders.get("success") and stop_orders.get("data"):
-                stop_plan_id = stop_orders["data"][0]["id"]
-
-            bar_opened = ws_client.last_t.get(norm_symbol)
-            obj_to_store = {
-                **obj,
-                "orderId": resp.get("data", {}).get("orderId"),
-                "stopPlanOrderId": stop_plan_id,
-                "entry": entry,
-                "lev": lev,
-                "tp_pct": tp_pct,
-                "tp_price": obj.get("takeProfitPrice"),
-                "sl_price": obj.get("stopLossPrice"),
-                "original_tp_price": tp_price,
-                "original_sl_price": sl_price,
-                "updates_count": 0,
-                "updates_sl": 0,
-                "sl_tol": risk_cfg.get("slTolerancePct", 0.0),
-                "bar_opened": bar_opened,
-                "price_scale": price_scale
-            }
-            open_trades[norm_symbol] = obj_to_store
-            logging.info(f"➕ [{norm_symbol}] נוספה עסקה ל-open_trades:\n{json.dumps(obj_to_store, indent=2, ensure_ascii=False)}")
-
-            if alert_sink:
-                msg = (
-                    f"🚀 עסקה נפתחה על {norm_symbol}\n"
-                    f"📈 Side: {'Long' if side == 1 else 'Short'}\n"
-                    f"⚖️ Leverage: {lev}x\n"
-                    f"🎯 TP: {obj_to_store.get('tp_price')}\n"
-                    f"🛑 SL: {obj_to_store.get('sl_price')}\n"
-                    f"Entry : {obj_to_store.get('entry')}\n"
+        # --- עדכון פרטים נוספים ברקע ---
+        async def update_details():
+            try:
+                pos, ws_entry = await asyncio.gather(
+                    mexc_api.get_open_positions(norm_symbol),
+                    asyncio.to_thread(lambda: cache.get_last_price(norm_symbol))
                 )
-                for i in range(1):
-                    await alert_sink.notify(msg)
-                    await asyncio.sleep(1)
-                await alert_sink.notify("⚠️⚠️⚠️ התרעה חוזרת: נפתחה עסקה חדשה! ⚠️⚠️⚠️")
+                entry = ws_entry
+                lev = leverage
+                if pos and pos.get("success") and pos.get("data"):
+                    p = pos["data"][0]
+                    entry = float(p.get("holdAvgPrice", ws_entry))
+                    lev = float(p.get("leverage", leverage))
 
-        except Exception as e:
-            open_trades[norm_symbol] = obj
+                stop_orders = await mexc_api.get_stop_orders(symbol=norm_symbol)
+                stop_plan_id = None
+                if stop_orders.get("success") and stop_orders.get("data"):
+                    stop_plan_id = stop_orders["data"][0]["id"]
+
+                bar_opened = ws_client.last_t.get(norm_symbol)
+                obj_to_store = {
+                    **obj,
+                    "orderId": resp.get("data", {}).get("orderId"),
+                    "stopPlanOrderId": stop_plan_id,
+                    "entry": entry,
+                    "lev": lev,
+                    "tp_pct": tp_pct,
+                    "tp_price": obj.get("takeProfitPrice"),
+                    "sl_price": obj.get("stopLossPrice"),
+                    "original_tp_price": tp_price,
+                    "original_sl_price": sl_price,
+                    "updates_count": 0,
+                    "updates_sl": 0,
+                    "sl_tol": risk_cfg.get("slTolerancePct", 0.0),
+                    "bar_opened": bar_opened,
+                    "price_scale": price_scale
+                }
+                open_trades[norm_symbol] = obj_to_store
+                logging.info(f"ℹ️ [{norm_symbol}] פרטי העסקה עודכנו בהצלחה")
+            except Exception as e:
+                logging.error(f"⚠️ שגיאה בעדכון פרטי העסקה עבור {norm_symbol}: {e}")
+
+        asyncio.create_task(update_details())  # ← ירוץ ברקע
+
         return {"ok": True, "symbol": norm_symbol, "response": resp}
 
+    # אם לא הצליח
     open_trades.pop(norm_symbol, None)
     return {"ok": False, "symbol": norm_symbol, "response": resp}
 

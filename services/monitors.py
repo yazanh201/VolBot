@@ -70,7 +70,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
     logging.info("🚀 monitor_tp_sl התחיל לעבוד עם API key תקין")
 
     # רמות נעילת רווח באחוזי PnL (על המרג'ין)
-    LOCK_LEVELS = [30, 80, 130, 230, 330, 430, 530, 630, 730, 830]
+    LOCK_LEVELS = [50, 150, 250, 350, 500, 700, 800, 900, 1000, 1200]
 
     def calc_upnl_pct(side, entry, curr, lev):
         """ חישוב אחוז רווח/הפסד על המרג'ין (PnL%) """

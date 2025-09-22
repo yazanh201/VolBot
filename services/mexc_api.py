@@ -191,7 +191,7 @@ class MexcAPI:
             return 0.0
         for asset in data["data"]:
             if asset.get("currency") == "USDT":
-                return float(asset.get("availableBalance", 0))
+                return float(asset.get("equity", 0))
         return 0.0
 
     async def get_contract_specs(self, symbol: str) -> dict:
@@ -399,6 +399,8 @@ class MexcAPI:
 # async def main():
 #     await api.start_session()
 #     try:
+#         balance = await api.get_usdt_balance()
+#         print(f"💰 USDT Balance: {balance}")
 #         # --- בדיקת פוזיציות פתוחות ---
 #         # positions = await api.get_open_positions("SOL_USDT")
 #         # print("📊 Open positions:", json.dumps(positions, indent=2, ensure_ascii=False))

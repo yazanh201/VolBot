@@ -13,7 +13,7 @@ class SpikeEngine:
                 ws,
                 open_trades: dict,
                 trade_cb: Optional[Callable[[str, float, float, float, float], Awaitable[None]]] = None,
-                poll_seconds: float = 0.5):
+                poll_seconds: float = 0.2):
         self.symbol = symbol.upper()
         self.interval = interval
         self.cooldown_seconds = int(cooldown_seconds)
@@ -79,25 +79,23 @@ class SpikeEngine:
                 # 🧠 סינון נוסף לפי המדדים החדשים
                 strong_body = body_range >= 0.40
                 at_band_edge = (bb_percent >= 0.80 or bb_percent <= 0.20)
-                high_rvol = rvol >= 2
+                high_rvol = rvol >= 0
 
                 # ✅ כיוון לפי %B
-                if bb_percent >= 0.80:   # קרוב ל־1 → למעלה
+                if bb_percent >= 0:   # קרוב ל־1 → למעלה
                     suggested_side = 1   # LONG
-                elif bb_percent <= 0.20: # קרוב ל־0 → למטה
+                elif bb_percent <= 0: # קרוב ל־0 → למטה
                     suggested_side = 3   # SHORT
                 else:
-                    suggested_side = 0   # אין כיוון ברור
+                    suggested_side = 3   # אין כיוון ברור
 
                 # בדיקה אם כל התנאים מתקיימים
                 conditions_met = (
                     threshold_to_use is not None and
                     diff >= threshold_to_use and
-                    strong_body and
-                    at_band_edge and
                     high_rvol and
                     suggested_side != 0 and
-                    abs(zscore) >= 3
+                    abs(zscore) >= -3
                 )
 
 
@@ -110,19 +108,26 @@ class SpikeEngine:
                         continue
 
                     seconds_left = timing["left"]
-                    if seconds_left <= 11:
-                        logging.debug(f"⏱️ {self.symbol} פחות מ-11 שניות לנר → דילוג")
+                    if seconds_left <= 15:
+                        logging.debug(f"⏱️ {self.symbol} פחות מ-15 שניות לנר → דילוג")
                         await asyncio.sleep(self.poll_seconds)
                         continue
 
                     self._next_allowed_ts = time.time() + self.cooldown_seconds
 
-                    # פתיחת עסקה בפועל
+                    # פתיחת עסקה בפועל – ישיר (await)
                     if self.trade_cb:
-                        asyncio.create_task(
-                            self.trade_cb(self.symbol, diff, last_price, close_price,
-                                        analysis["last_closed"]["close"], suggested_side)
-                        )
+                        logging.info(f"🚀 פותח עסקה מיידית עבור {self.symbol} | diff={diff:.2f}")
+                        try:
+                            await self.trade_cb(
+                                self.symbol, diff, last_price, close_price,
+                                analysis["last_closed"]["close"], suggested_side
+                            )
+                        except Exception as e:
+                            logging.error(
+                                f"❌ שגיאה בפתיחת עסקה עבור {self.symbol}: {e}",
+                                exc_info=True
+                            )
 
                     thr_str = f"{threshold_to_use:.4f}" if threshold_to_use is not None else "N/A"
 
@@ -139,7 +144,6 @@ class SpikeEngine:
                         f"RVOL={rvol:.2f}"
                     )
 
-
                     if self.alert_sink:
                         logging.info(f"📤 שולח הודעה לטלגרם עבור {self.symbol} ...")
                         try:
@@ -147,7 +151,7 @@ class SpikeEngine:
                             logging.info("✅ ההודעה נשלחה לטלגרם")
                         except Exception as e:
                             logging.error(f"❌ שגיאה בשליחת טלגרם: {e}")
-
+                        
             except Exception as e:
                 logging.error("⚠️ שגיאה ב-SpikeEngine עבור %s: %s", self.symbol, e, exc_info=True)
 
