@@ -23,23 +23,23 @@ open_trades: dict[str, dict] = {}   # { "BTC_USDT": {payload}, ... }
 # ---------- ENV & Logging ----------
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
-# logging.basicConfig(
-#     level=logging.WARNING,
-#     format="%(asctime)s | %(levelname)s | %(message)s",
-#     handlers=[
-#         logging.StreamHandler(),
-#         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
-#     ],
-# )
-
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.WARNING,
     format="%(asctime)s | %(levelname)s | %(message)s",
     handlers=[
         logging.StreamHandler(),
         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
     ],
 )
+
+# logging.basicConfig(
+#     level=logging.DEBUG,
+#     format="%(asctime)s | %(levelname)s | %(message)s",
+#     handlers=[
+#         logging.StreamHandler(),
+#         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
+#     ],
+# )
 
 # ---------- API keys ----------
 mexc_api_key = os.environ.get("MEXC_API_KEY_WEB2", "").strip()
