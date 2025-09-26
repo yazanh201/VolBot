@@ -99,31 +99,21 @@ class MexcClient:
         return await self.place_order(obj)
     
 
-    async def close_position(self, trade_cfg: dict, last_price: float, first_price: float, vol: Optional[float] = None) -> dict:
+    async def close_position(self, symbol: str, side: int, vol: int, type_: int = 5) -> dict:
         """
-        סוגרת עסקה לפי אותו היגיון כיוון:
-        - אם last_price > first_price → מניחה שהיה LONG → side=2 (סגירת לונג)
-        - אחרת → מניחה שהיה SHORT → side=4 (סגירת שורט)
-
-        vol:
-        אם לא הועבר – יילקח מ-trade_cfg.get("vol", 1). אם תרצה לסגור את כל הפוזיציה,
-        העבר כאן את ה-holdVol מה-API של MEXC.
+        סוגרת עסקה ב-MEXC לפי הנתונים שנשלחו מ-monitor:
+        - symbol: זוג המטבעות (למשל "SOL_USDT")
+        - side: צד סגירה (2 = סגירת Short, 4 = סגירת Long)
+        - vol: כמות לסגירה
+        - type_: סוג עסקה (ברירת מחדל: 5 = Market)
         """
-        side_close = 2 if last_price > first_price else 4
         obj = {
-        "symbol": norm_symbol,
-        "side": side,
-        "openType": trade_cfg.get("openType", 1),
-        "type": trade_cfg.get("type", 5),   # Market
-        "vol": vol,
-        "leverage": leverage,
-        "priceProtect": trade_cfg.get("priceProtect", 0),
-        "takeProfitPrice": tp_price,   # ✅ הוספה ישירות כאן
-        "stopLossPrice": sl_price   
+            "symbol": symbol,
+            "side": side,
+            "type": type_,
+            "vol": vol
+        }
 
-    }
-
-        logging.info("🔻 Close order for %s → side=%s (last=%.4f vs first=%.4f)",
-                    trade_cfg["symbol"], side_close, last_price, first_price)
+        logging.info(f"🔻 Close order → {obj}")
         return await self.place_order(obj)
 

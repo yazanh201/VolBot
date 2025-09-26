@@ -4,6 +4,9 @@ import logging
 import os
 import json
 from services.Tp_Sl_Change import MexcTPClient
+import time
+from services.mexc_client import MexcClient
+
 
 async def monitor_positions(open_trades, mexc_api, alert_sink=None):
     """
@@ -57,7 +60,7 @@ async def monitor_positions(open_trades, mexc_api, alert_sink=None):
         await asyncio.sleep(FAST_SLEEP)
 
 
-async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
+async def monitor_tp_sl(open_trades, ws_client,mexc_client, alert_sink=None):
     CHECK_INTERVAL = 0.5
 
     web_token = os.getenv("MEXC_API_KEY_WEB")
@@ -68,6 +71,9 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
     tp_client = MexcTPClient(api_key=web_token)
     await tp_client.start()
     logging.info("🚀 monitor_tp_sl התחיל לעבוד עם API key תקין")
+    mexc_client = MexcClient(api_key=web_token)
+    await mexc_client.start()
+
 
     # רמות נעילת רווח באחוזי PnL (על המרג'ין)
     LOCK_LEVELS = [50, 150, 250, 350, 500, 700, 800, 900, 1000, 1200]
@@ -96,17 +102,63 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                 entry        = trade_obj.get("entry")
                 tp_price     = trade_obj.get("tp_price")
                 sl_price     = trade_obj.get("sl_price")
+                vol          = trade_obj.get("vol", 1)
                 lev          = float(trade_obj.get("lev") or trade_obj.get("leverage") or 1.0)
-                locked_pct   = float(trade_obj.get("locked_pct", 0.0))  # רמת נעילה אחרונה שהושגה
+                locked_pct   = float(trade_obj.get("locked_pct", 0.0))
                 price_scale  = int(trade_obj.get("price_scale", 2))
+                start_time   = trade_obj.get("start_time")
 
-                if not stop_plan_id or not entry:
-                    logging.warning(f"⚠️ [{sym_key}] דילוג → stop_plan_id={stop_plan_id}, entry={entry}")
+                if not entry:
+                    logging.warning(f"⚠️ [{sym_key}] דילוג → entry={entry}")
                     continue
 
                 current_price = ws_client.get_price(sym_key) if ws_client else None
 
-                # ===== לוגיקת TP (ללא שינוי) =====
+                # ===== בדיקת timeout (10 שניות, 100% רווח) =====
+                if start_time:
+                    elapsed = time.time() - start_time
+                    logging.debug(f"⏱️ [{sym_key}] חלפו {elapsed:.2f} שניות מאז פתיחת העסקה")
+
+                    if elapsed >= 12:
+                        upnl_pct = calc_upnl_pct(side, entry, current_price, lev) if current_price else None
+                        logging.debug(
+                            f"📊 [{sym_key}] בדיקת Timeout → upnl_pct={upnl_pct}, lev={lev}, entry={entry}, curr={current_price}"
+                        )
+
+                        if upnl_pct is not None and upnl_pct < 50:
+                            # קביעת side לסגירה
+                            close_side = 2 if side == 3 else 4 if side == 1 else None
+                            if not close_side:
+                                logging.error(f"⚠️ [{sym_key}] side לא תקין לסגירה: {side}")
+                                continue
+
+                            vol = trade_obj.get("vol", 1)  # נשמר בעת פתיחת העסקה
+
+                            logging.warning(
+                                f"⏱️ [{sym_key}] Timeout → שולח סגירה עם symbol={sym_key}, side={close_side}, type=5, vol={vol}"
+                            )
+
+                            try:
+                                # קריאה לאובייקט של MexcClient (שנוצר בתחילת הקוד)
+                                resp = await mexc_client.close_position(
+                                    symbol=sym_key,
+                                    side=close_side,
+                                    vol=vol,
+                                    type_=5   # תמיד Market
+                                )
+                                logging.info(f"📥 [{sym_key}] תגובת close_position: {resp}")
+                                if resp.get("success") or str(resp.get("code")) in ("0", "200"):
+                                    open_trades.pop(sym_key, None)
+                                    logging.info(f"✅ [{sym_key}] נסגרה בהצלחה אחרי timeout")
+                                else:
+                                    logging.warning(f"⚠️ [{sym_key}] ניסיון סגירה נכשל → {resp}")
+                            except Exception as e:
+                                logging.error(f"💥 [{sym_key}] שגיאה בקריאת close_position: {e}", exc_info=True)
+
+                            continue  # דילוג לשאר העסקאות
+
+
+                # ===== לוגיקת TP =====
                 if current_price and tp_price:
                     updates_done = trade_obj.get("updates_count", 0)
                     tp_trigger   = entry + (tp_price - entry) * 0.8 if side == 1 else entry - (entry - tp_price) * 0.8
@@ -120,7 +172,7 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                                 trade_obj["updates_count"] = updates_done + 1
                                 logging.info(f"✅ [{sym_key}] TP עודכן ל-{new_tp}")
 
-                # ===== לוגיקת SL חדשה – רק לפי LOCK_LEVELS =====
+                # ===== לוגיקת SL (לפי LOCK_LEVELS) =====
                 new_sl_to_send = None
                 upnl_pct = calc_upnl_pct(side, entry, current_price, lev) if current_price else None
 
@@ -134,7 +186,6 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
                     if next_level is not None:
                         lock_sl = price_for_lock_pct(side, entry, lev, next_level)
 
-                        # שלח רק אם משפר את ה-SL הקיים
                         def better(a, b):
                             if a is None:
                                 return True
@@ -142,9 +193,8 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
 
                         if better(sl_price, lock_sl):
                             new_sl_to_send = lock_sl
-                            trade_obj["locked_pct"] = next_level  # עדכון רמת נעילה
+                            trade_obj["locked_pct"] = next_level
 
-                # שליחה לשרת
                 if new_sl_to_send and new_sl_to_send != sl_price:
                     resp = await tp_client.update_tp_sl(stop_plan_order_id=stop_plan_id,
                                                         tp=round(tp_price, price_scale) if tp_price else None,
@@ -161,11 +211,12 @@ async def monitor_tp_sl(open_trades, ws_client, alert_sink=None):
         await asyncio.sleep(CHECK_INTERVAL)
 
 
-def start_monitors(open_trades, mexc_api, ws_client, alert_sink=None):
+
+def start_monitors(open_trades, mexc_api, ws_client,mexc_client, alert_sink=None):
     """
     מפעיל את שני המוניטורים כתהליכי asyncio ומחזיר את רשימת המשימות.
     """
     tasks = []
     tasks.append(asyncio.create_task(monitor_positions(open_trades, mexc_api, alert_sink)))
-    tasks.append(asyncio.create_task(monitor_tp_sl(open_trades, ws_client, alert_sink)))
+    tasks.append(asyncio.create_task(monitor_tp_sl(open_trades, ws_client,mexc_client, alert_sink)))
     return tasks

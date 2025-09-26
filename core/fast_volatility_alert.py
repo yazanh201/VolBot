@@ -23,23 +23,23 @@ open_trades: dict[str, dict] = {}   # { "BTC_USDT": {payload}, ... }
 # ---------- ENV & Logging ----------
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
-    ],
-)
-
 # logging.basicConfig(
-#     level=logging.DEBUG,
+#     level=logging.WARNING,
 #     format="%(asctime)s | %(levelname)s | %(message)s",
 #     handlers=[
 #         logging.StreamHandler(),
 #         logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
 #     ],
 # )
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("bot.log", encoding="utf-8", mode="w"),
+    ],
+)
 
 # ---------- API keys ----------
 mexc_api_key = os.environ.get("MEXC_API_KEY_WEB2", "").strip()
@@ -178,8 +178,14 @@ async def open_mexc_order(
     success = bool(resp.get("success", False))
     if success or resp.get("code") in (0, 200, "200"):
         # נשמור מיד ב-open_trades כדי לדעת שיש עסקה פתוחה
-        open_trades[norm_symbol] = {**obj, "orderId": resp.get("data", {}).get("orderId")}
+        open_trades[norm_symbol] = {
+            **obj,
+            "orderId": resp.get("data", {}).get("orderId"),
+            "start_time": time.time()   # 👈 שמירת זמן פתיחה ראשוני
+        }
         logging.info(f"🚀 [{norm_symbol}] עסקה נפתחה ונשמרה ב-open_trades")
+        logging.debug(f"📦 נשמר ב-open_trades[{norm_symbol}] (initial): {open_trades[norm_symbol]}")
+
 
         # שליחת הודעה לטלגרם מייד
         if alert_sink:
@@ -230,8 +236,13 @@ async def open_mexc_order(
                     "updates_sl": 0,
                     "sl_tol": risk_cfg.get("slTolerancePct", 0.0),
                     "bar_opened": bar_opened,
-                    "price_scale": price_scale
+                    "price_scale": price_scale,
+                    "start_time": open_trades[norm_symbol].get("start_time", time.time()),
+                    "side": obj["side"],    # 👈 חשוב לשמור שוב
+                    "vol": obj["vol"],      # 👈 חשוב לשמור שוב
+                    "type": obj["type"],    # 👈 חשוב לשמור שוב
                 }
+
                 open_trades[norm_symbol] = obj_to_store
                 logging.info(f"ℹ️ [{norm_symbol}] פרטי העסקה עודכנו בהצלחה")
             except Exception as e:
@@ -246,7 +257,7 @@ async def open_mexc_order(
     return {"ok": False, "symbol": norm_symbol, "response": resp}
 
 # ---------- Main ----------
-async def run(config_path: str = "config.yaml", cache=None):
+async def run(config_path: str = "config.yaml", cache=None ,mexc_client=None):
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
@@ -328,7 +339,7 @@ async def run(config_path: str = "config.yaml", cache=None):
         tasks.append(asyncio.create_task(engine.run()))
 
     # --- Monitors (עברו לקובץ נפרד) ---
-    tasks.extend(start_monitors(open_trades, mexc_api, ws_client, alert_sink=alert_sink))
+    tasks.extend(start_monitors(open_trades, mexc_api, ws_client, mexc_client, alert_sink=alert_sink))
 
     # --- הרצה/כיבוי מסודר ---
     try:
