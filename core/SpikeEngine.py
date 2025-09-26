@@ -87,13 +87,17 @@ class SpikeEngine:
                 elif bb_percent <= 0.20: # קרוב ל־0 → למטה
                     suggested_side = 3   # SHORT
                 else:
-                    suggested_side = 3   # אין כיוון ברור
+                    suggested_side = 0   # אין כיוון ברור
 
                 # בדיקה אם כל התנאים מתקיימים
                 conditions_met = (
                     threshold_to_use is not None and
                     diff >= threshold_to_use and
-                    suggested_side != 0 
+                    strong_body and
+                    at_band_edge and
+                    high_rvol and
+                    suggested_side != 0 and
+                    abs(zscore) >= 3
                 )
 
 
