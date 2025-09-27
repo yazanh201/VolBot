@@ -119,7 +119,7 @@ async def monitor_tp_sl(open_trades, ws_client,mexc_client, alert_sink=None):
                     elapsed = time.time() - start_time
                     logging.debug(f"⏱️ [{sym_key}] חלפו {elapsed:.2f} שניות מאז פתיחת העסקה")
 
-                    if elapsed >= 12:
+                    if elapsed >= 13:
                         upnl_pct = calc_upnl_pct(side, entry, current_price, lev) if current_price else None
                         logging.debug(
                             f"📊 [{sym_key}] בדיקת Timeout → upnl_pct={upnl_pct}, lev={lev}, entry={entry}, curr={current_price}"
