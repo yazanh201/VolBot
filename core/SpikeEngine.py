@@ -44,7 +44,7 @@ class SpikeEngine:
                     continue
 
                 # 📊 נשתמש ב־CandleAnalyzer
-                analysis = await self.analyzer.analyze(self.symbol, self.interval, 50)
+                analysis = await self.analyzer.analyze(self.symbol, self.interval, 70)
                 if not analysis:
                     await asyncio.sleep(self.poll_seconds)
                     continue

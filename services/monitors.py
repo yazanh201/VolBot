@@ -125,7 +125,7 @@ async def monitor_tp_sl(open_trades, ws_client,mexc_client, alert_sink=None):
                             f"📊 [{sym_key}] בדיקת Timeout → upnl_pct={upnl_pct}, lev={lev}, entry={entry}, curr={current_price}"
                         )
 
-                        if upnl_pct is not None and upnl_pct < 50:
+                        if upnl_pct is not None and upnl_pct < 40:
                             # קביעת side לסגירה
                             close_side = 2 if side == 3 else 4 if side == 1 else None
                             if not close_side:

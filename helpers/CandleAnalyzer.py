@@ -13,7 +13,7 @@ class CandleAnalyzer:
         """
         self.api = api
 
-    async def get_candles(self, symbol: str, interval: str = "Min1", limit: int = 20) -> Tuple[List[Dict], Dict, Dict]:
+    async def get_candles(self, symbol: str, interval: str = "Min1", limit: int = 70) -> Tuple[List[Dict], Dict, Dict]:
         """
         מחזירה את הנרות האחרונים, הנר הסגור האחרון והנר החי.
         """
@@ -40,7 +40,7 @@ class CandleAnalyzer:
             return 0.0
         return (current_vol - mean) / std
 
-    def calc_atr(self, candles: List[Dict], period: int = 20) -> float:
+    def calc_atr(self, candles: List[Dict], period: int = 70) -> float:
         """
         מחשבת ATR (Average True Range) על סמך נרות קודמים
         """
@@ -71,7 +71,7 @@ class CandleAnalyzer:
         rng = candle["high"] - candle["low"]
         return body / rng if rng > 0 else 0.0
 
-    def calc_bollinger_percent(self, candles: List[Dict], price: float, period: int = 20, stddev: float = 2.0) -> float:
+    def calc_bollinger_percent(self, candles: List[Dict], price: float, period: int =70, stddev: float = 2.0) -> float:
         """
         מחשבת %B (מיקום בתוך בולינג'ר בנדס).
         %B = (price - Lower) / (Upper - Lower)
@@ -87,7 +87,7 @@ class CandleAnalyzer:
 
         return (price - lower) / (upper - lower) if (upper - lower) > 0 else 0.5
 
-    def calc_rvol(self, candles: List[Dict], live_vol: float, period: int = 20) -> float:
+    def calc_rvol(self, candles: List[Dict], live_vol: float, period: int = 70) -> float:
         """
         מחשבת Relative Volume (RVOL): live_vol ÷ mean(volume[-period:])
         """
@@ -95,7 +95,7 @@ class CandleAnalyzer:
         avg_vol = np.mean(vols) if vols else 0.0
         return live_vol / avg_vol if avg_vol > 0 else 0.0
 
-    async def analyze(self, symbol: str, interval: str = "Min1", limit: int = 20) -> Optional[Dict]:
+    async def analyze(self, symbol: str, interval: str = "Min1", limit: int = 70) -> Optional[Dict]:
         """
         מביאה נרות, מחשבת z-score, ATR, Body/Range, %B ו-RVOL לנר החי.
         """
@@ -144,7 +144,7 @@ async def main():
 
     await api.start_session()
     try:
-        result = await analyzer.analyze("SOL_USDT", interval="Min1", limit=20)
+        result = await analyzer.analyze("SOL_USDT", interval="Min1", limit=70)
         if result:
             print("📊 תוצאה מלאה:")
             print(f"Time: {result['time']}")
